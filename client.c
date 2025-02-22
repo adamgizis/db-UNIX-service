@@ -19,7 +19,6 @@ void client(char* filename){
 
     while ((socket_desc = domain_socket_client_create(filename)) < 0) {
 		// perror("Waiting for server to be ready...");
-
 	}
 	printf("client connected");
     if (socket_desc < 0) panic("domain socket create");

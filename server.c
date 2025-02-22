@@ -92,6 +92,8 @@ void server(char *filename){
 				num_fds++;
 				poll_fds[0].revents = 0;
 				printf("server: created client connection %d\n", new_client);
+			}else{
+				close(new_client);
 			}
 		}
 		for(i = 1; i < num_fds; i++){
@@ -123,58 +125,7 @@ void server(char *filename){
 	exit(EXIT_SUCCESS);
 
 }
-
-void client(char* filename){
-	int i, socket_desc;
-	char* sql; 
-	char buffer[2048];
-
-    while ((socket_desc = domain_socket_client_create(filename)) < 0) {
-		// perror("Waiting for server to be ready...");
-
-	}
-	printf("client connected");
-    if (socket_desc < 0) panic("domain socket create");
-
-
-	sql = "SELECT * from user;";
-
-	if(write(socket_desc, sql, strlen(sql)) == -1) panic("unable to write");
-
-	ssize_t num_read = read(socket_desc, buffer, 2048);
-    if (num_read > 0) {
-        buffer[num_read] = '\0';
-        printf("Server response: %s\n", buffer);
-    }
-	
-
-	close(socket_desc);
-	return;
-}
-
-
-
 int main(int argc, char* argv[]) {
-    // char* sql;
-    // char *zErrMsg = 0;
-    // sqlite3* db;
-    // int rc; 
-
-    // db = initate_db();
-    // if(!db){
-    //     printf("Unable to open database\n");
-    //     exit(0);
-    // }
-    // sql = "SELECT * from user;";
-
-    // rc = sqlite3_exec(db, sql, cb_send_results, 0, &zErrMsg);
-    
-    // if (rc != SQLITE_OK) {
-    //     fprintf(stderr, "SQL error: %s\n", zErrMsg);
-    //     sqlite3_free(zErrMsg);
-    // }
-    // sqlite3_close(db);
-    
 
     char *ds = "domain_socket";
 	server(ds);

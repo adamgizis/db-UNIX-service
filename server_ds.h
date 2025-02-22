@@ -35,11 +35,7 @@ domain_socket_server_create(const char *file_name)
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, file_name, sizeof(addr.sun_path) - 1);
 
-	if (chmod(file_name, 0666) == -1) { 
-        perror("chmod failed");
-        return -1;
-    }
-
+	unlink(file_name);
 	/* Associate the socket descriptor with a socket file named `file_name`. */
 	if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) return -1;
 	/* How many clients can the system queue up before they are `accept`ed? */
