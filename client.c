@@ -12,31 +12,49 @@
 #include <unistd.h> 
 
 
-void client(char* filename){
-	int i, socket_desc;
-	char* sql; 
-	char buffer[2048];
+void client(char* filename) {
+    int socket_desc;
+    char buffer[2048];
+    char sql[1024];  // Buffer for SQL input
 
+    // Connect to the server
     while ((socket_desc = domain_socket_client_create(filename)) < 0) {
-		// perror("Waiting for server to be ready...");
-	}
-	printf("client connected");
+        // Waiting for server to be ready...
+    }
+    printf("Client connected\n");
     if (socket_desc < 0) panic("domain socket create");
 
+	while(1){
+		// Get SQL query from user input
+		printf("Enter SQL query: ");
+		if (!fgets(sql, sizeof(sql), stdin)) {
+			perror("Error reading input");
+			close(socket_desc);
+			return;
+		}
 
-	sql = "SELECT * from user;";
+		// Remove trailing newline (if present)
+		size_t len = strlen(sql);
+		if (len > 0 && sql[len - 1] == '\n') {
+			sql[len - 1] = '\0';
+		}
 
-	if(write(socket_desc, sql, strlen(sql)) == -1) panic("unable to write");
+		// Send the query to the server
+		if (write(socket_desc, sql, strlen(sql)) == -1) {
+			panic("Unable to write");
+		}
 
-	ssize_t num_read = read(socket_desc, buffer, 2048);
-    if (num_read > 0) {
-        buffer[num_read] = '\0';
-        printf("Server response: %s\n", buffer);
-    }
-	
+		// Read server response
+		ssize_t num_read = read(socket_desc, buffer, sizeof(buffer) - 1);
+		if (num_read > 0) {
+			buffer[num_read] = '\0';
+			printf("Server response: %s\n", buffer);
+		} else {
+			perror("Error reading from server");
+		}
+	}
 
-	close(socket_desc);
-	return;
+    close(socket_desc);
 }
 
 

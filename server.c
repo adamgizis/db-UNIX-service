@@ -8,125 +8,116 @@
 #include <sys/poll.h>
 #include "server_ds.h"
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h> 
-
+#include <fcntl.h>
 
 #define DB_PATH "database/regs.db"
-
-
 #define MAX_FDS 16
 
-static int cb_send_results(void *socket_fd, int argc, char **argv, char **azColName) {
-    int client_socket = *(int *)socket_fd;  // Cast void* back to int*
-    char buffer[1024];  // Temporary buffer to hold each row's data
+typedef struct {
+    int client_socket;
+    int output_fd;
+} query_context_t;
 
-    // Construct the message for each row
-    buffer[0] = '\0';  // Reset buffer
+static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
+    query_context_t *ctx = (query_context_t *)context;  
+    char buffer[1024];  
+    buffer[0] = '\0';  
+    
     for (int i = 0; i < argc; i++) {
         snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
                  "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
     }
-    strcat(buffer, "\n");  // Add a newline after each row
-
-    // Send the data to the client
-    if (send(client_socket, buffer, strlen(buffer), 0) < 0) {
-        perror("Send failed");
-        return 1;  // Stop the callback on error
+    strcat(buffer, "\n");  
+    
+    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
+        perror("Write to file descriptor failed");
+        return 1;
     }
-
-    return 0;  // Continue processing
+    return 0;
 }
 
+void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int output_fd) {
+    char *zErrMsg = NULL;
+    query_context_t context = {client_fd, output_fd};
 
-// -1 or error
-sqlite3* initate_db(){
+    if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+        write(output_fd, error_msg, strlen(error_msg));
+        sqlite3_free(zErrMsg);
+    }
+}
+
+sqlite3* initiate_db() {
     sqlite3 *db;
-    int rc;
-
-    rc = sqlite3_open(DB_PATH, &db);
+    if (sqlite3_open(DB_PATH, &db) != SQLITE_OK) {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        return NULL;
+    }
     return db;
-
 }
 
+void server(char *filename) {
+    sqlite3* db = initiate_db();
+    if (!db) exit(EXIT_FAILURE);
+    
+    struct pollfd poll_fds[MAX_FDS];
+    int socket_desc, num_fds = 0;
+    socket_desc = domain_socket_server_create(filename);
 
-// poll to get query
-// call sqlite3 on query on server
-// return output to specfic client
+    memset(poll_fds, 0, sizeof(poll_fds));
+    poll_fds[0].fd = socket_desc;
+    poll_fds[0].events = POLLIN;
+    num_fds++;
 
-void server(char *filename){
-    sqlite3* db  = initate_db();
-	if(db){
-		printf("successful got database.\n");
-	}
-	struct pollfd poll_fds[MAX_FDS];
-	// create the socket
-	int socket_desc, num_fds = 0;
-	socket_desc = domain_socket_server_create(filename);
-
-	/* Initialize all pollfd structs to 0 */
-	memset(poll_fds, 0, sizeof(struct pollfd) * MAX_FDS);
-	poll_fds[0] = (struct pollfd) {
-		 .fd     = socket_desc,
-		 .events = POLLIN,
-	 };
-	num_fds++;
-
-	// event loop
-	for(;;){
-		int ret, new_client,i;
-		char *zErrMsg;
-		
-		ret = poll(poll_fds, num_fds, -1);
-		if (ret == -1) panic("poll error");
-		
-		if (poll_fds[0].revents & POLLIN) {
-            if ((new_client = accept(socket_desc, NULL, NULL)) == -1) panic("server accept");
-			
-			if (num_fds < MAX_FDS) {
-				/* add a new file descriptor! */
-				poll_fds[num_fds] = (struct pollfd) {
-					.fd = new_client,
-					.events = POLLIN
-				};
-				num_fds++;
-				poll_fds[0].revents = 0;
-				printf("server: created client connection %d\n", new_client);
-			}else{
-				close(new_client);
-			}
-		}
-		for(i = 1; i < num_fds; i++){
+    for (;;) {
+        int ret = poll(poll_fds, num_fds, -1);
+        if (ret == -1) panic("poll error");
+        
+        if (poll_fds[0].revents & POLLIN) {
+            int new_client = accept(socket_desc, NULL, NULL);
+            if (new_client == -1) panic("server accept");
+            
+            if (num_fds < MAX_FDS) {
+                poll_fds[num_fds].fd = new_client;
+                poll_fds[num_fds].events = POLLIN;
+                num_fds++;
+                printf("server: created client connection %d\n", new_client);
+            } else {
+                close(new_client);
+            }
+        }
+        
+        for (int i = 1; i < num_fds; i++) {
             if (poll_fds[i].revents & (POLLHUP | POLLERR)) {
                 printf("server: closing client connection %d\n", poll_fds[i].fd);
-                poll_fds[i].revents = 0;
                 close(poll_fds[i].fd);
-                /* replace the fd to fill the gap */
                 poll_fds[i] = poll_fds[num_fds - 1];
                 num_fds--;
-                /* make sure to check the fd we used to fill the gap */
                 i--;
-
                 continue;
             }
-			char buffer[1024];
-			int bytes_read = read(poll_fds[i].fd, buffer, sizeof(buffer));
-			if (bytes_read > 0) {
-				buffer[bytes_read] = '\0';
-				if (sqlite3_exec(db, buffer, cb_send_results, &poll_fds[i].fd, &zErrMsg) != SQLITE_OK) {
-					fprintf(stderr, "SQL error: %s\n", zErrMsg);
-					sqlite3_free(zErrMsg);
-				}
-			}
-		}
-	}
-	
-	close(socket_desc);
-	exit(EXIT_SUCCESS);
-
+            
+            if (poll_fds[i].revents & POLLIN) {
+                char buffer[1024];
+                int bytes_read = read(poll_fds[i].fd, buffer, sizeof(buffer) - 1);
+                if (bytes_read > 0) {
+                    buffer[bytes_read] = '\0';
+                    int query_fd = open("query_results.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (query_fd < 0) {
+                        perror("Failed to open query file");
+                        continue;
+                    }
+                    execute_query_and_send(db, buffer, poll_fds[i].fd, query_fd);
+                    close(query_fd);
+                }
+            }
+        }
+    }
+    close(socket_desc);
+    sqlite3_close(db);
 }
-int main(int argc, char* argv[]) {
 
-    char *ds = "domain_socket";
-	server(ds);
+int main(int argc, char* argv[]) {
+    server("domain_socket");
 }
