@@ -15,11 +15,10 @@
 void client(char* filename) {
     int socket_desc;
     char buffer[2048];
-    char sql[1024];  // Buffer for SQL input
+    char sql[1024]; 
 
-    // Connect to the server
     while ((socket_desc = domain_socket_client_create(filename)) < 0) {
-        // Waiting for server to be ready...
+        // infinitely wait until user connects
     }
     printf("Client connected\n");
     if (socket_desc < 0) panic("domain socket create");
@@ -33,7 +32,7 @@ void client(char* filename) {
 			return;
 		}
 
-		// Remove trailing newline (if present)
+		// remove trailing line
 		size_t len = strlen(sql);
 		if (len > 0 && sql[len - 1] == '\n') {
 			sql[len - 1] = '\0';
