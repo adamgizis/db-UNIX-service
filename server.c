@@ -10,12 +10,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h> 
+#include <sys/socket.h>
 
 
 #define DB_PATH "database/regs.db"
-
-
 #define MAX_FDS 16
+
+typedef struct {
+	ucred cred;
+} cred;
 
 static int cb_send_results(void *socket_fd, int argc, char **argv, char **azColName) {
     int client_socket = *(int *)socket_fd;  // Cast void* back to int*
@@ -60,9 +63,14 @@ void server(char *filename){
 		printf("successful got database.\n");
 	}
 	struct pollfd poll_fds[MAX_FDS];
+	struct cred credentials[MAX_FDS - 1];
 	// create the socket
-	int socket_desc, num_fds = 0;
+	int socket_desc, num_clients, num_fds = 0;
+	socklen_t len = sizeof(struct ucred);
 	socket_desc = domain_socket_server_create(filename);
+
+	// initialize cred structs
+	memset(credentials, 0, sizeof(struct cred) * MAX_FDS);
 
 	/* Initialize all pollfd structs to 0 */
 	memset(poll_fds, 0, sizeof(struct pollfd) * MAX_FDS);
@@ -91,6 +99,8 @@ void server(char *filename){
 				};
 				num_fds++;
 				poll_fds[0].revents = 0;
+
+				getsockopt(new_client, SOL_SOCKET, SO_PEERCRED, credentials[num_clients].cred, &len);
 				printf("server: created client connection %d\n", new_client);
 			}else{
 				close(new_client);
