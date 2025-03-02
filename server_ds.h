@@ -23,7 +23,7 @@ unlink_domain_socket(int status, void *filename)
 }
 
 int
-domain_socket_server_create(const char *file_name)
+	domain_socket_server_create(const char *file_name)
 {
 	struct sockaddr_un addr;
 	int fd;
