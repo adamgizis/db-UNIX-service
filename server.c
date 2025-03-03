@@ -1,27 +1,22 @@
-#define _GNU_SOURCE
 #include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <string.h>	
+#include <string.h>
 #include <sys/wait.h>
-#include <assert.h>										
+#include <assert.h>
 #include <sqlite3.h>
-#include <sys/poll.h>				
+#include <sys/poll.h>
 #include "server_ds.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h> 
-#include <sys/socket.h>
 
 
 #define DB_PATH "database/regs.db"
 #define MAX_FDS 16
 
-typedef struct {
-	pid_t pid;
-	uid_t uid;
-	gid_t gid;
-} ucred;
+
+
 
 static int cb_send_results(void *socket_fd, int argc, char **argv, char **azColName) {
     int client_socket = *(int *)socket_fd;  // Cast void* back to int*
@@ -66,13 +61,9 @@ void server(char *filename){
 		printf("successful got database.\n");
 	}
 	struct pollfd poll_fds[MAX_FDS];
-	struct ucred credentials[MAX_FDS - 1];
 	// create the socket
-	int socket_desc, num_clients, num_fds = 0;
+	int socket_desc, num_fds = 0;
 	socket_desc = domain_socket_server_create(filename);
-
-	// initialize cred structs
-	memset(credentials, 0, sizeof(struct ucred) * (MAX_FDS - 1));
 
 	/* Initialize all pollfd structs to 0 */
 	memset(poll_fds, 0, sizeof(struct pollfd) * MAX_FDS);
@@ -91,26 +82,16 @@ void server(char *filename){
 		if (ret == -1) panic("poll error");
 		
 		if (poll_fds[0].revents & POLLIN) {
-
             if ((new_client = accept(socket_desc, NULL, NULL)) == -1) panic("server accept");
 			
 			if (num_fds < MAX_FDS) {
 				/* add a new file descriptor! */
 				poll_fds[num_fds] = (struct pollfd) {
 					.fd = new_client,
-					.events = POLLIN	
+					.events = POLLIN
 				};
 				num_fds++;
 				poll_fds[0].revents = 0;
-
-				printf("about to do sockopt\n");
-				socklen_t len = sizeof(struct ucred);
-				if (getsockopt(new_client, SOL_SOCKET, SO_PEERCRED, &credentials[num_clients], &len) == -1) {
-					printf("getsockopt\n");
-					exit(-1);
-				}
-				printf("pid=%d | uid=%d | gid=%d\n", credentials[num_clients].pid, credentials[num_clients].uid, credentials[num_clients].gid);
-				num_clients++;
 				printf("server: created client connection %d\n", new_client);
 			}else{
 				close(new_client);
