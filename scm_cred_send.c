@@ -1,7 +1,49 @@
 #include "scm_cred.h"
 
+
+int recv_fd(int socket) {
+    struct msghdr msgh;
+    msgh.msg_name = NULL;
+    msgh.msg_namelen = 0;
+    
+    // Control message buffer
+    // single 
+    size_t cmsgbuf[CMSG_SPACE(sizeof(int))];
+    memset(cmsgbuf, 0, sizeof(cmsgbuf));
+
+    // dummy
+    struct iovec iov;
+    int data = 12345;
+    iov.iov_base = &data;
+    iov.iov_len = sizeof(data);
+    msgh.msg_iov = &iov;
+    msgh.msg_iovlen = 1;
+
+    // Set up control message
+    msgh.msg_control = cmsgbuf;
+    msgh.msg_controllen = sizeof(cmsgbuf);
+
+    // recieve
+    if (recvmsg(socket, &msgh, 0) == -1) {
+        perror("recvmsg");
+        return -1;
+    }
+
+    // Extract file descriptor
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msgh);
+    if (cmsg == NULL || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+        fprintf(stderr, "Invalid control message\n");
+        return -1;
+    }
+
+    int fd;
+    memcpy(&fd, CMSG_DATA(cmsg), sizeof(int));
+    return fd;
+}
+
+
 int
-main(int argc, char *argv[])
+main()
 {
     /* Allocate a char array of suitable size to hold the ancillary data.
        However, since this buffer is in reality a 'struct cmsghdr', use a
@@ -93,26 +135,49 @@ main(int argc, char *argv[])
     msgh.msg_control = NULL;
     msgh.msg_controllen = 0;
 
-    ssize_t bytes_read;
-    char buffer[1024];
+    //ssize_t bytes_read;
+    //char buffer[1024];
 
-    // Read at most BUF_SIZE bytes from STDIN into buf.
-    while ((bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0) {
-        // Then, write those bytes from buf into the socket.
+    // // Read at most BUF_SIZE bytes from STDIN into buf.
+    // while ((bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0) {
+    //     // Then, write those bytes from buf into the socket.
 
-        iov.iov_base = buffer;  
-        iov.iov_len = bytes_read;
+    //     iov.iov_base = buffer;  
+    //     iov.iov_len = bytes_read;
 
-        ssize_t ns = sendmsg(sfd, &msgh, 0);
-        if (ns == -1)
-            errExit("sendmsg");
+    //     ssize_t ns = sendmsg(sfd, &msgh, 0);
+    //     if (ns == -1)
+    //         errExit("sendmsg");
     
-        printf("sendmsg() returned %zd\n", ns);
-    }
+    //     printf("sendmsg() returned %zd\n", ns);
+    // }
       
-    if (bytes_read == -1) {
-        errExit("read");
+    // if (bytes_read == -1) {
+    //     errExit("read");
+    // }
+    
+    // Test Query
+    const char *query = "SELECT * FROM user;";
+    if (write(sfd, query, strlen(query)) == -1) {
+        perror("write");
+        close(sfd);
+        exit(EXIT_FAILURE);
     }
+    printf("Query: %s\n", query);
+
+    // Receive the file descriptor
+    int received_fd = recv_fd(sfd);
+    if (received_fd == -1) {
+        close(sfd);
+        errExit("Can't Read file descriptor");
+    }
+    //Verify the received FD
+    if (fcntl(received_fd, F_GETFD) == -1) {
+        close(sfd);
+        errExit("Invalid file descriptor");
+    }
+    printf("Received file descriptor: %d\n", received_fd);
+
 
     sleep(30);
     //exit(EXIT_SUCCESS);

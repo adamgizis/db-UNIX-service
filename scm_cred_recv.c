@@ -20,10 +20,15 @@ sqlite3* db;
 typedef struct {
     int client_socket;
     int output_fd;
+    char* filepath;
 } query_context_t;
 
 
-void send_file(char* path,int sfd){
+void send_file(void * context){
+
+    query_context_t *ctx = (query_context_t *)context;  
+    int sfd = ctx->client_socket;
+    char * path = ctx->filepath;
     // always just sending the one file for now
     size_t fdAllocSize = sizeof(int);
     size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
@@ -72,11 +77,10 @@ void send_file(char* path,int sfd){
        of file descriptors */
 
     cmsgp->cmsg_len = CMSG_LEN(fdAllocSize);
-    printf("cmsg_len 1: %ld\n", (long) cmsgp->cmsg_len);
 
     /* Open files named on the command line, and copy the resulting block of
        file descriptors into the data field of the ancillary message */
-
+    int fdCnt = 1;
     int *fdList = malloc(fdAllocSize);
     if (fdList == NULL)
         errExit("calloc");
@@ -95,44 +99,46 @@ void send_file(char* path,int sfd){
     ssize_t ns = sendmsg(sfd, &msgh, 0);
     if (ns == -1)
         errExit("sendmsg");
-
-    printf("sendmsg() returned %zd\n", ns);
 }
 
 
+static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
+    query_context_t *ctx = (query_context_t *)context;  
+    char buffer[1024];  
+    buffer[0] = '\0';  
+    
+    for (int i = 0; i < argc; i++) {
+        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
+                 "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    strcat(buffer, "\n");  
+    
+    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
+        perror("Write to file descriptor failed");
+        return 1;
+    }
 
-void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int output_fd) {
+    send_file((void*) context);
+
+    return 0;
+}
+
+void execute_query_and_send(sqlite3 *db, const char *query, int client_fd) {
     char *zErrMsg = NULL;
-    query_context_t context = {client_fd, output_fd};
+    int query_fd = open("query.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    query_context_t context;
+    context.client_socket = client_fd;
+    context.output_fd = query_fd;
+    context.filepath = "query.txt";
 
     if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-        write(output_fd, error_msg, strlen(error_msg));
-        sen
+        write(context.output_fd, error_msg, strlen(error_msg));
         sqlite3_free(zErrMsg);
     }
+
 }
-
-
-
-// static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
-//     query_context_t *ctx = (query_context_t *)context;  
-//     char buffer[1024];  
-//     buffer[0] = '\0';  
-    
-//     for (int i = 0; i < argc; i++) {
-//         snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
-//                  "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-//     }
-//     strcat(buffer, "\n");  
-    
-//     if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
-//         perror("Write to file descriptor failed");
-//         return 1;
-//     }
-//     return 0;
-// }
 
 sqlite3* initiate_db() {
     sqlite3 *db;
@@ -172,14 +178,11 @@ void server(){
     pollfds[0] = clients[0].pollfd;
     num_clients++;
 
-    ssize_t bytes_read; 
-    char buffer[1024];
 
     printf("starting polling...\n");
 
     // Polling loop
     for (;;) {
-        char *zErrMsg;
         int ret = poll(pollfds, num_clients, -1);
         if (ret == -1)
             errExit("poll error");
@@ -263,42 +266,19 @@ void server(){
                 continue;
             }
 
-            if (c->pollfd.revents & POLLIN) {   
-
-                // STDOUT LOGIC //
-                /*
-                if ((bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer))) > 0) {
-                    if(write(STDOUT_FILENO, buffer, bytes_read) != bytes_read   ) { 
-                        fatal("partial/failed write");
-                    }
-                }
-
-                if (bytes_read == -1) {
-                    errExit("read");
-                }
-                
-                */
-                // DATABASE LOGIC //
+            if (c->pollfd.revents & POLLIN) { 
                 
                 char buffer[1024];
 			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
 			    if (bytes_read > 0) {
 				    buffer[bytes_read] = '\0';
-                    if (query_fd < 0) {
-                        perror("Failed to open query file");
-                        continue;
-                    }
-                    execute_query_and_send(db, buffer, c->pollfd.fd, query_fd);
-                    close(query_fd);
+                    execute_query_and_send(db, buffer, c->pollfd.fd);
 			    }   
-                }
-            
             }
         }
-    }
+   }
 }
-
-int main(int argc, char* argv[]){
+int main(){
     server();
 }
 
