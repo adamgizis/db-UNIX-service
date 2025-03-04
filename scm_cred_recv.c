@@ -2,6 +2,7 @@
 
    See also scm_multi_recv.c.
 */
+#include <sqlite3.h>
 #include "scm_cred.h"
 
 #define DB_PATH "database/regs.db"
@@ -51,6 +52,8 @@ void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int o
     }
 }
 
+*/
+
 sqlite3* initiate_db() {
     sqlite3 *db;
     if (sqlite3_open(DB_PATH, &db) != SQLITE_OK) {
@@ -59,18 +62,15 @@ sqlite3* initiate_db() {
     }
     return db;
 }
-*/
 
 int main(int argc, char *argv[]) {
 
     // Initialize the db
-    /*
     sqlite3* db = initiate_db();
 
     if(!db) {
         errExit("initialize_db");
     }
-    */
 
     if (remove(SOCK_PATH) == -1 && errno != ENOENT)
         errExit("remove-%s", SOCK_PATH);
@@ -146,9 +146,18 @@ int main(int argc, char *argv[]) {
                     cmsgp->cmsg_level != SOL_SOCKET || cmsgp->cmsg_type != SCM_CREDENTIALS)
                     fatal("Invalid credentials received");
 
-                memcpy(&c->creds, CMSG_DATA(cmsgp), sizeof(struct ucred));
+                struct ucred rcred;
+
+                memcpy(&rcred, CMSG_DATA(cmsgp), sizeof(struct ucred));
                 printf("Received credentials: pid=%ld, uid=%ld, gid=%ld\n",
-                        (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
+                        (long)rcred.pid, (long)rcred.uid, (long)rcred.gid);
+
+                socklen_t len = sizeof(struct ucred);
+                if (getsockopt(new_client, SOL_SOCKET, SO_PEERCRED, &c->creds, &len) == -1)
+                    errExit("getsockopt");
+
+                printf("Credentials from SO_PEERCRED: pid=%ld, uid=%ld, gid=%ld\n",
+                    (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
 
                 num_clients++;
                 printf("server: created client connection %d\n", new_client);
@@ -176,6 +185,8 @@ int main(int argc, char *argv[]) {
 
             if (c->pollfd.revents & POLLIN) {   
 
+                // STDOUT LOGIC //
+                /*
                 if ((bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer))) > 0) {
                     if(write(STDOUT_FILENO, buffer, bytes_read) != bytes_read   ) { 
                         fatal("partial/failed write");
@@ -185,6 +196,8 @@ int main(int argc, char *argv[]) {
                 if (bytes_read == -1) {
                     errExit("read");
                 }
+                
+                */
                 // DATABASE LOGIC //
                 /*
                 char buffer[1024];

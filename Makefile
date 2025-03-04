@@ -14,10 +14,10 @@ BINARY=server client
 all: $(BINARY)
 
 server: $(SERVER_OBJECTS)
-		$(CC) -o $@ $^
+		$(CC) -o $@ $^ -lsqlite3
 		
 client: $(CLIENT_OBJECTS)
-		$(CC) -o $@ $^
+		$(CC) -o $@ $^ -lsqlite3
 
 %.o:%.c
 		$(CC) $(CFLAGS) -c -o $@ $^
