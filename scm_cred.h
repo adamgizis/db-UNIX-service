@@ -14,5 +14,6 @@
 #include <fcntl.h>
 
 #define SOCK_PATH "scm_cred"
+#define DB_PATH "database/regs.db"
 
 #define MAX_FDS 16
