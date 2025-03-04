@@ -4,6 +4,8 @@
 */
 #include "scm_cred.h"
 
+#define DB_PATH "database/regs.db"
+
 typedef struct {
     struct pollfd pollfd;  // Stores fd and events for poll()
     struct msghdr msgh;    // Message header for receiving ancillary data
@@ -13,7 +15,63 @@ typedef struct {
     int data;              // Received data
 } Client;
 
+/*
+typedef struct {
+    int client_socket;
+    int output_fd;
+} query_context_t;
+
+static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
+    query_context_t *ctx = (query_context_t *)context;  
+    char buffer[1024];  
+    buffer[0] = '\0';  
+    
+    for (int i = 0; i < argc; i++) {
+        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
+                 "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    strcat(buffer, "\n");  
+    
+    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
+        perror("Write to file descriptor failed");
+        return 1;
+    }
+    return 0;
+}
+
+void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int output_fd) {
+    char *zErrMsg = NULL;
+    query_context_t context = {client_fd, output_fd};
+
+    if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+        write(output_fd, error_msg, strlen(error_msg));
+        sqlite3_free(zErrMsg);
+    }
+}
+
+sqlite3* initiate_db() {
+    sqlite3 *db;
+    if (sqlite3_open(DB_PATH, &db) != SQLITE_OK) {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        return NULL;
+    }
+    return db;
+}
+*/
+
 int main(int argc, char *argv[]) {
+
+    // Initialize the db
+    /*
+    sqlite3* db = initiate_db();
+
+    if(!db) {
+        errExit("initialize_db");
+    }
+    */
+
     if (remove(SOCK_PATH) == -1 && errno != ENOENT)
         errExit("remove-%s", SOCK_PATH);
 
@@ -26,17 +84,29 @@ int main(int argc, char *argv[]) {
         errExit("listen");
 
     Client clients[MAX_FDS] = {0};
+    struct pollfd pollfds[MAX_FDS] = {0};
 
     // Initialize the listening socket
     clients[0].pollfd.fd = lfd;
     clients[0].pollfd.events = POLLIN;
+    pollfds[0] = clients[0].pollfd;
     num_clients++;
+
+    ssize_t bytes_read; 
+    char buffer[1024];
+
+    printf("starting polling...\n");
 
     // Polling loop
     for (;;) {
-        int ret = poll((struct pollfd *)clients, num_clients, -1);
+        char *zErrMsg;
+        int ret = poll(pollfds, num_clients, -1);
         if (ret == -1)
             errExit("poll error");
+
+        for (int i = 0; i < num_clients; i++) {
+            clients[i].pollfd = pollfds[i];
+        }
 
         // Check for new connections
         if (clients[0].pollfd.revents & POLLIN) {
@@ -49,6 +119,7 @@ int main(int argc, char *argv[]) {
                 Client *c = &clients[num_clients];
                 c->pollfd.fd = new_client;
                 c->pollfd.events = POLLIN;
+                pollfds[num_clients] = c->pollfd;
 
                 int optval = 1;
                 if (setsockopt(new_client, SOL_SOCKET, SO_PASSCRED, &optval, sizeof(optval)) == -1)
@@ -87,7 +158,6 @@ int main(int argc, char *argv[]) {
         }
         // Check existing clients
         for (int i = 1; i < num_clients; i++) {
-            printf("inhere");
             Client *c = &clients[i];
             if (c->pollfd.revents & (POLLHUP | POLLERR)) {
                 
@@ -96,6 +166,7 @@ int main(int argc, char *argv[]) {
                 
                 // Replace the disconnected client with the last one in the array
                 clients[i] = clients[num_clients - 1];
+                pollfds[i] = pollfds[num_clients - 1];
                 num_clients--;
         
                 i--;
@@ -103,7 +174,33 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            if (c->pollfd.revents & POLLIN) {
+            if (c->pollfd.revents & POLLIN) {   
+
+                if ((bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer))) > 0) {
+                    if(write(STDOUT_FILENO, buffer, bytes_read) != bytes_read   ) { 
+                        fatal("partial/failed write");
+                    }
+                }
+
+                if (bytes_read == -1) {
+                    errExit("read");
+                }
+                // DATABASE LOGIC //
+                /*
+                char buffer[1024];
+			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
+			    if (bytes_read > 0) {
+				    buffer[bytes_read] = '\0';
+                    int query_fd = open("query_results.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (query_fd < 0) {
+                        perror("Failed to open query file");
+                        continue;
+                    }
+                    execute_query_and_send(db, buffer, c->pollfd.fd, query_fd);
+                    close(query_fd);
+			    }   
+            }
+                */
             }
         }
     }

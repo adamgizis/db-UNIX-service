@@ -88,6 +88,32 @@ main(int argc, char *argv[])
 
     printf("sendmsg() returned %zd\n", ns);
 
+    /* Only send credentials once   */
+
+    msgh.msg_control = NULL;
+    msgh.msg_controllen = 0;
+
+    ssize_t bytes_read;
+    char buffer[1024];
+
+    // Read at most BUF_SIZE bytes from STDIN into buf.
+    while ((bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0) {
+        // Then, write those bytes from buf into the socket.
+
+        iov.iov_base = buffer;  
+        iov.iov_len = bytes_read;
+
+        ssize_t ns = sendmsg(sfd, &msgh, 0);
+        if (ns == -1)
+            errExit("sendmsg");
+    
+        printf("sendmsg() returned %zd\n", ns);
+    }
+      
+    if (bytes_read == -1) {
+        errExit("read");
+    }
+
     sleep(30);
     //exit(EXIT_SUCCESS);
 }
