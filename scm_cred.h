@@ -11,11 +11,12 @@
 #include "tlpi_hdr.h"
 #include <sys/poll.h>
 #include <grp.h>
+#include <json-c/json.h>
 #include <sys/stat.h>      
 #include <sqlite3.h>
 #include <fcntl.h>
 
 #define SOCK_PATH "scm_cred"
-#define DB_PATH "database/regs.db"
+#define DB_PATH "database/wiki.db"
 
 #define MAX_FDS 16

@@ -120,6 +120,7 @@ static int send_error(const char *error_msg, int client_fd) {
 }
 
 static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
+    printf("cb_send_restults\n");
     query_context_t *ctx = (query_context_t *)context;  
     char buffer[1024];  
     buffer[0] = '\0';  
@@ -128,7 +129,9 @@ static int cb_send_results(void *context, int argc, char **argv, char **azColNam
         snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
                  "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
     }
-    strcat(buffer, "\n");  
+    strcat(buffer, "\n");
+
+    printf("%s", buffer);       
     
     if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
         perror("Write to file descriptor failed");
@@ -147,6 +150,8 @@ void execute_query_and_send(sqlite3 *db, const char *query, int client_fd) {
     context.client_socket = client_fd;
     context.output_fd = query_fd;
     context.filepath = "query.txt";
+
+    printf("Executing: %s\n", query);
 
     if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
         char error_msg[512];
@@ -183,6 +188,7 @@ void server(){
 
     // Initialize the db
     db = initiate_db();
+    printf("%s\n", DB_PATH);    
 
     if(!db) {
         errExit("initialize_db");
@@ -308,23 +314,47 @@ void server(){
                 continue;
             }
 
-            if (c->pollfd.revents & POLLIN) { 
+            if (c->pollfd.revents & POLLIN) {       
                 
                 char buffer[1024];
 			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
 			    if (bytes_read > 0) {
 				    buffer[bytes_read] = '\0';
-                    if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
-                        execute_query_and_send(db, buffer, c->pollfd.fd);
-                    } else {
-                        char *error_msg = "Invalid credentials for database modification";
+
+                    struct json_object *json_req = json_tokener_parse(buffer);
+                    if (!json_req) {
+                        char *error_msg = "Invalid JSON";
                         send_error(error_msg, c->pollfd.fd);
+                        continue;
+                    }
+
+                    struct json_object *action_obj;
+                    if (!json_object_object_get_ex(json_req, "action", &action_obj)) {
+                        send_error("Missing action field", c->pollfd.fd);
+                        json_object_put(json_req);
+                        continue;
+                    }
+                    
+                    const char *request = json_object_get_string(action_obj);                                       
+
+                    if (strcmp(request, "GET_ARTICLES") == 0) {
+                        printf("GET_ARTICLES\n");   
+                        execute_query_and_send(db, "SELECT articles.id, title, username FROM articles INNER JOIN users ON articles.author_id = users.id WHERE is_published = TRUE;", c->pollfd.fd);
+                    } else {
+                        if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
+                            execute_query_and_send(db, buffer, c->pollfd.fd);
+                        } else {
+                            char *error_msg = "Invalid credentials for database modification";
+                            send_error(error_msg, c->pollfd.fd);
+                            continue;
+                        }
                     }
 			    }   
             }
         }
    }
 }
+
 int main(){
     server();
 }
