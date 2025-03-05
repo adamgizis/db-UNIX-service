@@ -10,6 +10,8 @@
 #include "unix_sockets.h"       /* Declares our socket functions */
 #include "tlpi_hdr.h"
 #include <sys/poll.h>
+#include <grp.h>
+#include <sys/stat.h>      
 #include <sqlite3.h>
 #include <fcntl.h>
 

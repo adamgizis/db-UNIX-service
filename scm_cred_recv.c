@@ -16,6 +16,7 @@ typedef struct {
 
 sqlite3* db;
 
+#define SUDO = "sudo"
 
 typedef struct {
     int client_socket;
@@ -101,6 +102,22 @@ void send_file(void * context){
         errExit("sendmsg");
 }
 
+static int send_error(const char *error_msg, int client_fd) {
+    int error_fd = open("error.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    query_context_t context;
+    context.client_socket = client_fd;
+    context.output_fd = error_fd;
+    context.filepath = "error.txt";
+
+    if (write(error_fd, error_msg, strlen(error_msg)) < 0) {
+        perror("Write to file descriptor failed");
+        return 1;
+    }
+
+    send_file(&context);
+
+    return 0;
+}
 
 static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
     query_context_t *ctx = (query_context_t *)context;  
@@ -140,6 +157,19 @@ void execute_query_and_send(sqlite3 *db, const char *query, int client_fd) {
 
 }
 
+int is_query_read_only(sqlite3 *db, const char *query) {
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db));
+        // Handle error
+    }
+    int is_read_only = sqlite3_stmt_readonly(stmt);
+
+    sqlite3_finalize(stmt);
+
+    return is_read_only;
+}
+
 sqlite3* initiate_db() {
     sqlite3 *db;
     if (sqlite3_open(DB_PATH, &db) != SQLITE_OK) {
@@ -158,6 +188,13 @@ void server(){
         errExit("initialize_db");
     }
 
+    char *group_name = "sudo";
+    struct group *sudo_grp = getgrnam(group_name);
+
+    if (!sudo_grp) {
+        errExit("getgrnam-%s", group_name);
+    }
+
     if (remove(SOCK_PATH) == -1 && errno != ENOENT)
         errExit("remove-%s", SOCK_PATH);
 
@@ -165,6 +202,9 @@ void server(){
     int lfd = unixBind(SOCK_PATH, SOCK_STREAM);
     if (lfd == -1)
         errExit("unixBind");
+
+    if (chmod(SOCK_PATH, 0777) == -1) 
+            errExit("chmod");
 
     if (listen(lfd, 5) == -1)
         errExit("listen");
@@ -258,8 +298,10 @@ void server(){
                 
                 // Replace the disconnected client with the last one in the array
                 clients[i] = clients[num_clients - 1];
-                pollfds[i] = pollfds[num_clients - 1];
+                pollfds[i] = pollfds[num_clients - 1];      
                 num_clients--;
+
+                memset(&clients[num_clients], 0, sizeof(Client));
         
                 i--;
         
@@ -272,7 +314,12 @@ void server(){
 			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
 			    if (bytes_read > 0) {
 				    buffer[bytes_read] = '\0';
-                    execute_query_and_send(db, buffer, c->pollfd.fd);
+                    if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
+                        execute_query_and_send(db, buffer, c->pollfd.fd);
+                    } else {
+                        char *error_msg = "Invalid credentials for database modification";
+                        send_error(error_msg, c->pollfd.fd);
+                    }
 			    }   
             }
         }

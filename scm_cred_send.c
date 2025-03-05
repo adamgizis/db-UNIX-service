@@ -34,7 +34,7 @@ int recv_fd(int socket) {
     if (cmsg == NULL || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
         fprintf(stderr, "Invalid control message\n");
         return -1;
-    }
+    }   
 
     int fd;
     memcpy(&fd, CMSG_DATA(cmsg), sizeof(int));
@@ -119,6 +119,7 @@ main()
     int sfd;
     sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
     while(sfd < 0){
+        //printf("trying to connect...\n");
         sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
     }
 
@@ -157,7 +158,7 @@ main()
     // }
     
     // Test Query
-    const char *query = "SELECT * FROM user;";
+    const char *query = "CREATE TABLE employees (employee_id INT PRIMARY KEY,first_name VARCHAR(50),last_name VARCHAR(50),department VARCHAR(50),salary DECIMAL(10, 2));";
     if (write(sfd, query, strlen(query)) == -1) {
         perror("write");
         close(sfd);
@@ -177,6 +178,13 @@ main()
         errExit("Invalid file descriptor");
     }
     printf("Received file descriptor: %d\n", received_fd);
+
+    ssize_t bytes_read;
+    char buffer[1024];
+        
+    while((bytes_read = read(received_fd, buffer, sizeof(buffer))) > 0) {
+        write(STDOUT_FILENO, buffer, bytes_read);
+    }
 
 
     sleep(30);
