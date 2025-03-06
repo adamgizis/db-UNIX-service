@@ -1,6 +1,70 @@
     #include "scm_cred.h"
 
 
+    
+
+    // // returns a list of file ids
+    // int* list_articles(int sfd){
+
+
+    // }
+
+
+    // // returns 0 on success -1 on failure
+    // int delete_articles(int sfd, int* ids, int* num_fds){
+
+
+    // }
+
+    // // return 0 on success -1 on failure
+    // int upload_articles(int sfd, int* ids, int )
+
+
+
+
+    void prepare_credentials_msg(struct msghdr *msgh) {
+        union {
+            char buf[CMSG_SPACE(sizeof(struct ucred))];
+            struct cmsghdr align;
+        } controlMsg;
+    
+        msgh->msg_name = NULL;
+        msgh->msg_namelen = 0;
+    
+        // Using just auxiliary data
+        int data = 12345;
+    
+        struct iovec iov;
+        iov.iov_base = &data;
+        iov.iov_len = sizeof(data);
+        msgh->msg_iov = &iov;
+        msgh->msg_iovlen = 1;
+    
+        /* Set 'msgh' fields to describe the ancillary data buffer */
+        msgh->msg_control = controlMsg.buf;
+        msgh->msg_controllen = sizeof(controlMsg.buf);
+    
+        /* Zero-initialize control message buffer */
+        memset(controlMsg.buf, 0, sizeof(controlMsg.buf));
+    
+        /* Set message header to describe the ancillary data we want to send */
+        struct cmsghdr *cmsgp = CMSG_FIRSTHDR(msgh);
+        cmsgp->cmsg_len = CMSG_LEN(sizeof(struct ucred));
+        cmsgp->cmsg_level = SOL_SOCKET;
+        cmsgp->cmsg_type = SCM_CREDENTIALS;
+    
+        /* Use sender's own PID, real UID, and real GID */
+        struct ucred creds;
+        creds.pid = getpid();
+        creds.uid = getuid();
+        creds.gid = getgid();
+    
+        printf("Preparing credentials pid=%ld, uid=%ld, gid=%ld\n",
+                (long) creds.pid, (long) creds.uid, (long) creds.gid);
+    
+        /* Copy 'ucred' structure into data field in the 'cmsghdr' */
+        memcpy(CMSG_DATA(cmsgp), &creds, sizeof(struct ucred));
+    }
 
     // int* fdList has to be a list of open fds
     //    int *fdList = malloc(fdAllocSize);
@@ -132,80 +196,13 @@
         return fds;  // Caller is responsible for freeing this
     }
     
-    int
-    main()
-    {
-        /* Allocate a char array of suitable size to hold the ancillary data.
-        However, since this buffer is in reality a 'struct cmsghdr', use a
-        union to ensure that it is aligned as required for that structure.
-        Alternatively, we could allocate the buffer using malloc(), which
-        returns a buffer that satisfies the strictest alignment
-        requirements of any type */
-
-        union {
-            char   buf[CMSG_SPACE(sizeof(struct ucred))];
-                            /* Space large enough to hold a ucred structure */
-            struct cmsghdr align;
-        } controlMsg;
-
-        /* The 'msg_name' field can be used to specify the address of the
-        destination socket when sending a datagram. However, we do not
-        need to use this field because we use connect() below, which sets
-        a default outgoing address for datagrams. */
+void 
+client(){
 
         struct msghdr msgh;
-        msgh.msg_name = NULL;
-        msgh.msg_namelen = 0;
-
-
-        // Using just auxillary data
-        int data =12345;
-
-        struct iovec iov;
-        iov.iov_base = &data;
-        iov.iov_len = sizeof(data);
-        msgh.msg_iov = &iov;
-        msgh.msg_iovlen = 1;
-
-
-
-        /* Set 'msgh' fields to describe the ancillary data buffer */
-
-        msgh.msg_control = controlMsg.buf;
-        msgh.msg_controllen = sizeof(controlMsg.buf);
-
-        /* The control message buffer must be zero-initialized in order for the
-            CMSG_NXTHDR() macro to work correctly. Although we don't need to use
-            CMSG_NXTHDR() in this example (because there is only one block of
-            ancillary data), we show this step to demonstrate best practice */
-
-        memset(controlMsg.buf, 0, sizeof(controlMsg.buf));
-
-        /* Set message header to describe the ancillary data that
-            we want to send */
-
-        struct cmsghdr *cmsgp = CMSG_FIRSTHDR(&msgh);
-        cmsgp->cmsg_len = CMSG_LEN(sizeof(struct ucred));
-        cmsgp->cmsg_level = SOL_SOCKET;
-        cmsgp->cmsg_type = SCM_CREDENTIALS;
-
-        /* Use sender's own PID, real UID, and real GID, unless
-            alternate values were supplied on the command line */
-
-        struct ucred creds;
-
-        creds.pid = getpid();
-        creds.uid = getuid();
-        creds.gid = getgid();
-
-        printf("Send credentials pid=%ld, uid=%ld, gid=%ld\n",
-                (long) creds.pid, (long) creds.uid, (long) creds.gid);
-
-        /* Copy 'ucred' structure into data field in the 'cmsghdr' */
-
-        memcpy(CMSG_DATA(cmsgp), &creds, sizeof(struct ucred));
-
+        prepare_credentials_msg(&msgh);    
         /* Connect to the peer socket */
+
         int sfd;
         sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
         while(sfd < 0){
@@ -214,7 +211,6 @@
         }
 
         /* Send real plus ancillary data */
-
         ssize_t ns = sendmsg(sfd, &msgh, 0);
         if (ns == -1)
             errExit("sendmsg");
@@ -270,7 +266,7 @@
             close(sfd);
             exit(EXIT_FAILURE);
         }
-        
+
 
         char file_descriptor[20];
         sprintf(file_descriptor, "%d", fd);
@@ -324,3 +320,33 @@
         sleep(30);
         //exit(EXIT_SUCCESS);
     }
+
+
+        // returns a list of file descriptors
+int* get_articles(int sfd,int* ids, int* num_ids){
+    struct json_object *json_obj = json_object_new_object();
+    json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLE"));
+
+
+    json_object *ids_json = json_object_new_array();
+    for (int i = 0; i < *num_ids; ++i) {
+        json_object_array_add(ids_json, json_object_new_int(ids[i])); 
+    }                         
+    json_object_object_add(json_obj, "ids", ids_json);
+
+    const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+
+    if (write(sfd, request, strlen(request)) == -1) {
+        perror("write");
+        close(sfd);
+        exit(EXIT_FAILURE);
+        return NULL;
+    }
+
+    int *fds = receive_fds(sfd, num_ids);
+    return fds;
+}
+
+int main(){
+    client();
+}
