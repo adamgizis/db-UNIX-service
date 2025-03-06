@@ -21,8 +21,9 @@ sqlite3* db;
 
 typedef struct {
     int client_socket;
-    int output_fd;
-    char* filepath;
+    int article_fds[MAX_FDS];
+    int num_fds;
+
 } query_context_t;
 
 
@@ -41,19 +42,22 @@ for (int j = 0; j < fdCnt; j++) {
 }
 */
 
-int send_files(int sfd, int* fdList, int* fdCnt){
+int send_files(query_context_t *context){
+
+    printf("send files\n");
     
     // depends how you want to handle this
-    if(*fdCnt == 0){
+    if(context->num_fds == 0){
         return -1;
     }
 
 
-    size_t fdAllocSize = sizeof(int) * (*fdCnt);
+    size_t fdAllocSize = sizeof(int) * (context->num_fds);
     size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
 
     char *controlMsg = malloc(controlMsgSize);
     if (controlMsg == NULL){
+        free(context);
         errExit("malloc");
         return -1;
     }
@@ -96,10 +100,11 @@ int send_files(int sfd, int* fdList, int* fdCnt){
 
 
     // see code above function
-    memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
+    memcpy(CMSG_DATA(cmsgp), context->article_fds, fdAllocSize);
 
-    ssize_t ns = sendmsg(sfd, &msgh, 0);
+    ssize_t ns = sendmsg(context->client_socket, &msgh, 0);
     if (ns == -1){
+        free(context);
         errExit("sendmsg");
         return -1;
     }
@@ -114,7 +119,7 @@ void send_file(void* context){
 
     query_context_t *ctx = (query_context_t *)context;  
     int sfd = ctx->client_socket;
-    char * path = ctx->filepath;
+    //char * path = ctx->filepath;
     // always just sending the one file for now
     size_t fdAllocSize = sizeof(int);
     size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
@@ -123,7 +128,7 @@ void send_file(void* context){
         errExit("malloc");
 
     /* The control message buffer must be zero-initialized in order for
-       the CMSG_NXTHDR() macro to work correctly */
+       the CMSG_NXTHDR() macro to work correctly */ 
 
     memset(controlMsg, 0, controlMsgSize);
 
@@ -175,7 +180,7 @@ void send_file(void* context){
        descriptors into the ancillary data */
 
     for (int j = 0; j < fdCnt; j++) {
-        fdList[j] = open(path, O_RDONLY);
+        //fdList[j] = open(path, O_RDONLY);
         if (fdList[j] == -1)
             errExit("open");
     }
@@ -191,8 +196,6 @@ static int send_error(const char *error_msg, int client_fd) {
     int error_fd = open("error.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     query_context_t context;
     context.client_socket = client_fd;
-    context.output_fd = error_fd;
-    context.filepath = "error.txt";
 
     if (write(error_fd, error_msg, strlen(error_msg)) < 0) {
         perror("Write to file descriptor failed");
@@ -204,53 +207,43 @@ static int send_error(const char *error_msg, int client_fd) {
     return 0;
 }
 
-static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
-    printf("cb_send_results\n");
+
+static int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
+    printf("cb_send_fds\n");
     query_context_t *ctx = (query_context_t *)context;  
-    char buffer[BUFFER_SIZE];  
-    buffer[0] = '\0';  
     
     for (int i = 0; i < argc; i++) {
-        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
-                 "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-    }
-    strcat(buffer, "\n");
-
-    printf("%s", buffer);       
+        ctx->article_fds[i] = open(argv[i], O_RDONLY);
+        if (ctx->article_fds[i] == -1){
+            errExit("invalid file path in database: %s", argv[i]);
+        }
+    } 
     
-    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
-        perror("Write to file descriptor failed");
-        return 1;
-    }
-
-    send_file((void*) context);
+    ctx->num_fds += argc;
 
     return 0;
 }
 
+/*
 static int cb_send_results_multiple_fds(void *context, int argc, char **argv, char **azColName) {
-    printf("cb_send_restults_multiple\n");
-    query_context_t *ctx = (query_context_t *)context;  
-    char buffer[BUFFER_SIZE];  
-    buffer[0] = '\0';  
+    printf("cb_send_results_multiple: %d results\n", argc);
+    query_context_t *ctx = (query_context_t *)context;
+    int fds[argc];
+    int client_fd = ctx->client_socket;
     
     for (int i = 0; i < argc; i++) {
-        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
-                 "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-    }
-    strcat(buffer, "\n");
+        printf("%s\n", argv[i]);
+        fds[i] = open(argv[i], O_RDONLY);
+        if (fds[i] == -1){
+            errExit("invalid file path in database: %s", argv[i]);
+        }
+    }                                             
 
-    printf("%s", buffer);       
-    
-    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
-        perror("Write to file descriptor failed");
-        return 1;
-    }
-
-    send_file((void*) context);
+    send_files(client_fd, fds, argc);
 
     return 0;
 }
+*/
 
 int format_ids(struct json_object *array, char *query) {
     if (json_object_get_type(array) != json_type_array) {
@@ -272,13 +265,11 @@ int format_ids(struct json_object *array, char *query) {
     return num_ids;
 }
 
+/*
 void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int num_fds) {
     char *zErrMsg = NULL;
-    int query_fd = open("query.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     query_context_t context;
     context.client_socket = client_fd;
-    context.output_fd = query_fd;
-    context.filepath = "query.txt";
 
     printf("Executing: %s\n", query);
 
@@ -298,6 +289,24 @@ void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int n
         }
     }                   
 
+}
+    */
+
+void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd) {
+    char *zErrMsg = NULL;
+    query_context_t *context = calloc(1, sizeof(query_context_t));
+    context->client_socket = client_fd;
+    context->num_fds = 0;
+
+    if (sqlite3_exec(db, query, cb_send_fds,    context, &zErrMsg) != SQLITE_OK) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+        send_error(error_msg, client_fd);
+        sqlite3_free(zErrMsg);
+    }
+
+    send_files(context);
+    free(context);                      
 }
 
 int is_query_read_only(sqlite3 *db, const char *query) {
@@ -453,6 +462,7 @@ void server(){
             if (c->pollfd.revents & POLLIN) {       
                 char buffer[BUFFER_SIZE] = {0};
 			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
+                
 			    if (bytes_read > 0) {
 				    buffer[bytes_read] = '\0';      
 
@@ -480,7 +490,7 @@ void server(){
                                                        "ON articles.author_id = users.id "
                                                        "WHERE is_published = TRUE;";
 
-                        execute_query_and_send(db, query, c->pollfd.fd, 0);
+                        //execute_query_and_send(db, query, c->pollfd.fd, 0);
 
                     } else if (strcmp(request, "GET_ARTICLE") == 0) {
                         printf("GET_ARTICLES\n");
@@ -503,11 +513,14 @@ void server(){
                         strcat(query, ");");
 
                         json_object_put(json_req);
-                        execute_query_and_send(db, query, c->pollfd.fd, num_ids);
+                        execute_query_and_send_fds(db, query, c->pollfd.fd);
 
+                    } else if (strcmp(request, "UPLOAD_ARTICLES") == 0){
+
+                
                     } else {
                         if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
-                            execute_query_and_send(db, buffer, c->pollfd.fd, 0);
+                            //execute_query_and_send(db, buffer, c->pollfd.fd, 0);
                         } else {
                             char *error_msg = "Invalid credentials for database modification";
                             send_error(error_msg, c->pollfd.fd);

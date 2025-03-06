@@ -27,9 +27,19 @@ INSERT INTO users (id, username, role) VALUES
 INSERT INTO articles (title, file_path, author_id, is_published)
 VALUES (
     "Getting Started",
-    "./wiki_content/getting_started.",
+    "./wiki_content/getting_started.txt",
     0,
     1
 );
+
+INSERT INTO articles (title, file_path, author_id, is_published)
+VALUES (
+    "Ain't the net swell?",
+    "./wiki_content/motivation.txt",
+    0,
+    1
+);
+
+
 
 

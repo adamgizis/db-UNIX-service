@@ -254,6 +254,7 @@
 
         json_object *ids = json_object_new_array();
         json_object_array_add(ids, json_object_new_int(1)); 
+        json_object_array_add(ids, json_object_new_int(2));                             
         json_object_object_add(json_obj, "ids", ids);
 
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
