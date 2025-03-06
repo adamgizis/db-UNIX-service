@@ -28,10 +28,10 @@
         size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
 
         char *controlMsg = malloc(controlMsgSize);
-        if (controlMsg == NULL)
+        if (controlMsg == NULL){
             errExit("malloc");
             return -1;
-
+        }
 
         memset(controlMsg, 0, controlMsgSize);
         
@@ -73,9 +73,10 @@
         memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
 
         ssize_t ns = sendmsg(sfd, &msgh, 0);
-        if (ns == -1)
+        if (ns == -1){
             errExit("sendmsg");
             return -1;
+        }
 
         printf("sendmsg() returned %zd\n", ns);
         return 0;
