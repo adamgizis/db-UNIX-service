@@ -505,9 +505,9 @@ int process_client_request(Client *c) {
                     */
             }
 
-        } else if (strcmp(request, "DELETE_ARTICLES") == 0){
+        } else if (strcmp(request, "DELETE_ARTICLE") == 0){
           // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
-            printf("DELETE_ARTICLES");
+            printf("DELETE_ARTICLE");
 
             // Ensure "ids" is present in the JSON request
             if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {

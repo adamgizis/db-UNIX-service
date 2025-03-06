@@ -1,26 +1,46 @@
-    #include "scm_cred.h"
+#include "scm_cred_send.h"
 
-
+    int close_connection(int sfd) {
+        if (sfd < 0) {
+            return -1;  // Invalid socket
+        }
     
+        if (close(sfd) == -1) {
+            perror("close");
+            return -1;  // Error occurred while closing the socket
+        }
+    
+        return 0;  // Socket closed successfully
+    }
 
-    // // returns a list of file ids
-    // int* list_articles(int sfd){
+    // returns a proper file descriptor and sends aux data
+    int client_connect(){
+        struct msghdr msgh;
+        prepare_credentials_msg(&msgh);    
+        /* Connect to the peer socket */
 
+        int sfd;
+        sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
+        while(sfd < 0){
+            //printf("trying to connect...\n");
+            sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
+        }
 
-    // }
+        /* Send real plus ancillary data */
+        ssize_t ns = sendmsg(sfd, &msgh, 0);
+        if (ns == -1)
+            errExit("sendmsg");
 
+        printf("sendmsg() returned %zd\n", ns);
 
-    // // returns 0 on success -1 on failure
-    // int delete_articles(int sfd, int* ids, int* num_fds){
+        /* Only send credentials once   */
 
+        msgh.msg_control = NULL;
+        msgh.msg_controllen = 0;
 
-    // }
+        return sfd;
 
-    // // return 0 on success -1 on failure
-    // int upload_articles(int sfd, int* ids, int )
-
-
-
+    }
 
     void prepare_credentials_msg(struct msghdr *msgh) {
         union {
@@ -65,20 +85,6 @@
         /* Copy 'ucred' structure into data field in the 'cmsghdr' */
         memcpy(CMSG_DATA(cmsgp), &creds, sizeof(struct ucred));
     }
-
-    // int* fdList has to be a list of open fds
-    //    int *fdList = malloc(fdAllocSize);
-    /*
-    code to use if filepaths is the path to all of the files that need to be opened.
-    if (fdList == NULL)
-    errExit("calloc");
-
-    for (int j = 0; j < fdCnt; j++) {
-    fdList[j] = open(filepaths[j], O_RDONLY);
-    if (fdList[j] == -1)
-        errExit("open");
-    }
-    */
 
     int send_files(int sfd, int* fdList, int fdCnt, const char* json_string){
         
@@ -148,6 +154,9 @@
 
     }
 
+
+
+
     int* receive_fds(int socket, int *num_fds) {
         struct msghdr msgh;
         struct iovec iov;
@@ -195,158 +204,83 @@
     
         return fds;  // Caller is responsible for freeing this
     }
-    
-void 
-client(){
 
-        struct msghdr msgh;
-        prepare_credentials_msg(&msgh);    
-        /* Connect to the peer socket */
-
-        int sfd;
-        sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
-        while(sfd < 0){
-            //printf("trying to connect...\n");
-            sfd = unixConnect(SOCK_PATH, SOCK_STREAM);
+ // returns a list of file descriptors
+    int* get_articles(int sfd,int* ids, int* num_ids){
+        if(sfd < 0 ){
+            return NULL;
         }
 
-        /* Send real plus ancillary data */
-        ssize_t ns = sendmsg(sfd, &msgh, 0);
-        if (ns == -1)
-            errExit("sendmsg");
-
-        printf("sendmsg() returned %zd\n", ns);
-
-        /* Only send credentials once   */
-
-        msgh.msg_control = NULL;
-        msgh.msg_controllen = 0;
-
-        //ssize_t bytes_read;
-        //char buffer[1024];
-
-        // // Read at most BUF_SIZE bytes from STDIN into buf.
-        // while ((bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0) {
-        //     // Then, write those bytes from buf into the socket.
-
-        //     iov.iov_base = buffer;  
-        //     iov.iov_len = bytes_read;
-
-        //     ssize_t ns = sendmsg(sfd, &msgh, 0);
-        //     if (ns == -1)
-        //         errExit("sendmsg");
-        
-        //     printf("sendmsg() returned %zd\n", ns);
-        // }
-        
-        // if (bytes_read == -1) {
-        //     errExit("read");
-        // }
-        
-        // Test Query
-        //const char *query = "SELECT * FROM users";
-
-        /*
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLE"));
 
-        json_object *ids = json_object_new_array();
-        json_object_array_add(ids, json_object_new_int(1)); 
-        json_object_array_add(ids, json_object_new_int(2));                             
-        json_object_object_add(json_obj, "ids", ids);
-        */
 
-        struct json_object *json_obj = json_object_new_object();
-        json_object_object_add(json_obj, "action", json_object_new_string("UPLOAD_ARTICLES"));
-        struct json_object *json_mapping = json_object_new_object();
-        json_object_object_add(json_obj, "file_mapping", json_mapping);
-        int fd = open("./love.txt", O_RDWR);
-        if(fd < 0){
-            perror("open");
-            close(sfd);
-            exit(EXIT_FAILURE);
-        }
+        json_object *ids_json = json_object_new_array();
+        for (int i = 0; i < *num_ids; ++i) {
+            json_object_array_add(ids_json, json_object_new_int(ids[i])); 
+        }                         
+        json_object_object_add(json_obj, "ids", ids_json);
 
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
-        char file_descriptor[20];
-        sprintf(file_descriptor, "%d", fd);
-
-        json_object_object_add(json_mapping, file_descriptor, json_object_new_string("love"));
-
-        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);       
-
-        if (send_files(sfd, &fd, 1, request)) {
+        if (write(sfd, request, strlen(request)) == -1) {
             perror("write");
             close(sfd);
             exit(EXIT_FAILURE);
-        }
-        printf("Query: %s\n", request);
-
-        printf("recieving fd\n");
-        // Receive the file descriptor
-        int num_fds;
-    
-        int *fds = receive_fds(sfd, &num_fds);
-    
-        printf("verifying fd\n");
-        //Verify the received FD
-        if (fds) {
-            printf("Received %d file descriptors:\n", num_fds);
-            for (int i = 0; i < num_fds; i++) {
-                printf("Recieved %d\n", fds[i]);
-                ssize_t bytes_read;
-                char buffer[1024];
-                    
-                printf("printing results\n");   
-                while((bytes_read = read(fds[i], buffer, sizeof(buffer))) > 0) {
-                    write(STDOUT_FILENO, buffer, bytes_read);
-                }
-            }
-            free(fds);
-        } else {
-            printf("Failed to receive file descriptors\n");
-            
+            return NULL;
         }
 
-        // ssize_t bytes_read;
-        // char buffer[1024];
-            
-        // printf("printing results\n");   
-        // while((bytes_read = read(received_fd, buffer, sizeof(buffer))) > 0) {
-        //     write(STDOUT_FILENO, buffer, bytes_read);
-        // }
-
-
-        sleep(30);
-        //exit(EXIT_SUCCESS);
+        int *fds = receive_fds(sfd, num_ids);
+        return fds;
     }
 
 
-        // returns a list of file descriptors
-int* get_articles(int sfd,int* ids, int* num_ids){
-    struct json_object *json_obj = json_object_new_object();
-    json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLE"));
+// returns a list of file ids
+// int* list_articles(int sfd){
+// }
 
+    // returns 0 on success, or an FD to error.txt on server error
+    int delete_articles(int sfd, int* ids, int* num_ids) {
+        if(sfd < 0) {
+            return -1; // Return -1 for invalid socket
+        }
 
-    json_object *ids_json = json_object_new_array();
-    for (int i = 0; i < *num_ids; ++i) {
-        json_object_array_add(ids_json, json_object_new_int(ids[i])); 
-    }                         
-    json_object_object_add(json_obj, "ids", ids_json);
+        // Prepare the JSON request
+        struct json_object *json_obj = json_object_new_object();
+        json_object_object_add(json_obj, "action", json_object_new_string("DELETE_ARTICLE"));
 
-    const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+        json_object *ids_json = json_object_new_array();
+        for (int i = 0; i < *num_ids; ++i) {
+            json_object_array_add(ids_json, json_object_new_int(ids[i])); 
+        }
+        json_object_object_add(json_obj, "ids", ids_json);
 
-    if (write(sfd, request, strlen(request)) == -1) {
-        perror("write");
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+
+        // Send the request to the server
+        if (write(sfd, request, strlen(request)) == -1) {
+            perror("write");
+            close(sfd);
+            return -1;  // Return -1 if writing fails
+        }
+
+        // Receive the server's response
+        int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
+
+        if (fds != NULL) {
+            // If fds are returned, it indicates an error from the server, so we return the fd to error.txt
+            int error_fd = fds[0];  // Assuming the server sends a single FD for error
+            close(sfd);
+            return error_fd;
+        }
+
+        // If no fds were received (NULL), it indicates success
         close(sfd);
-        exit(EXIT_FAILURE);
-        return NULL;
+        return 0;
     }
 
-    int *fds = receive_fds(sfd, num_ids);
-    return fds;
-}
+// // return 0 on success -1 on failure
+// int upload_articles(int sfd, int* ids, int ){
 
-int main(){
-    client();
-}
+
+// }

@@ -1,51 +1,24 @@
-#include <errno.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/wait.h>
-#include <assert.h>
-#include <sqlite3.h>
-#include <sys/poll.h>
-#include "server_ds.h"
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h> 
+#include "scm_cred_send.h"
+
+int main() {
+    int sfd = client_connect();
+    
+    
+    int ids[] = {1, 2};  
+    int num_ids = 2;  
 
 
-void client(char* filename){
-	int i, socket_desc;
-	char* sql; 
-	char buffer[2048];
-
-    while ((socket_desc = domain_socket_client_create(filename)) < 0) {
-		// perror("Waiting for server to be ready...");
-	}
-	printf("client connected");
-    if (socket_desc < 0) panic("domain socket create");
-
-
-	sql = "SELECT * from user;";
-
-	if(write(socket_desc, sql, strlen(sql)) == -1) panic("unable to write");
-
-	ssize_t num_read = read(socket_desc, buffer, 2048);
-    if (num_read > 0) {
-        buffer[num_read] = '\0';
-        printf("Server response: %s\n", buffer);
+    int* fds = get_articles(sfd, ids, &num_ids); 
+    
+    
+    if (fds != NULL) {
+        for (int i = 0; i < num_ids; ++i) {
+            printf("File descriptor for article %d: %d\n", ids[i], fds[i]);
+        }
+        
+        free(fds);
+    } else {
+        printf("Failed to retrieve articles.\n");
     }
-	
-
-	close(socket_desc);
-	return;
-}
-
-
-int main(int argc, char* argv[]) {
-
-  char *ds = "domain_socket";
-
-  client(ds);
-
-
-  return 0;
+	close_connection(sfd);
 }
