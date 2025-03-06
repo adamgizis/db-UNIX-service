@@ -228,6 +228,27 @@ void send_file(void* context){
         errExit("sendmsg");
 }
 
+void send_json(const char *message, int client_fd){
+    struct msghdr msgh;
+    memset(&msgh, 0, sizeof(msgh));
+
+    struct iovec iov;
+    iov.iov_base = message;
+    iov.iov_len = strlen(message);
+    
+    msgh.msg_iov = &iov;
+    msgh.msg_iovlen = 1;
+    
+    msgh.msg_name = NULL;
+    msgh.msg_namelen = 0;
+    msgh.msg_control = NULL;
+    msgh.msg_controllen = 0;
+
+    ssize_t ns = sendmsg(client_fd, &msgh, 0);
+    if (ns == -1)
+        errExit("sendmsg");
+}
+
 static int send_error(const char *error_msg, int client_fd) {
     int error_fd = open("error.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     query_context_t context;
@@ -261,26 +282,20 @@ static int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
     return 0;
 }
 
-/*
-static int cb_send_results_multiple_fds(void *context, int argc, char **argv, char **azColName) {
+
+static int cb_send_json(void *json_array, int argc, char **argv, char **azColName) {
     printf("cb_send_results_multiple: %d results\n", argc);
-    query_context_t *ctx = (query_context_t *)context;
-    int fds[argc];
-    int client_fd = ctx->client_socket;
+    struct json_object *json_arr = (struct json_object *)json_array;
+    struct json_object *article = json_object_new_object();
     
     for (int i = 0; i < argc; i++) {
-        printf("%s\n", argv[i]);
-        fds[i] = open(argv[i], O_RDONLY);
-        if (fds[i] == -1){
-            errExit("invalid file path in database: %s", argv[i]);
-        }
-    }                                             
+        json_object_object_add(article, azColName[i], json_object_new_string(argv[i]));
+    }   
 
-    send_files(client_fd, fds, argc);
+    json_object_array_add(json_array, article);                                         
 
     return 0;
 }
-*/
 
 int format_ids(struct json_object *array, char *query) {
     if (json_object_get_type(array) != json_type_array) {
@@ -303,32 +318,28 @@ int format_ids(struct json_object *array, char *query) {
 }
 
 
-/*
-void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int num_fds) {
+
+void execute_query_and_send_json(sqlite3 *db, const char *query, int client_fd) {
     char *zErrMsg = NULL;
-    query_context_t context;
-    context.client_socket = client_fd;
+    struct json_object *json_message = json_object_new_object();
+    json_object *json_array = json_object_new_array();
+    json_object_object_add(json_message, "articles", json_array);
 
-    printf("Executing: %s\n", query);
+    if (sqlite3_exec(db, query, cb_send_json, json_array, &zErrMsg) != SQLITE_OK) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+        send_error(error_msg, client_fd);
+        sqlite3_free(zErrMsg);
+    }
 
-    if(num_fds > 1) {
-        if (sqlite3_exec(db, query, cb_send_results_multiple_fds, &context, &zErrMsg) != SQLITE_OK) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-            write(context.output_fd, error_msg, strlen(error_msg));
-            sqlite3_free(zErrMsg);
-        }
-    } else{
-        if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-            write(context.output_fd, error_msg, strlen(error_msg));
-            sqlite3_free(zErrMsg);
-        }
-    }                   
+    json_object_object_add(json_message, "success", json_object_new_boolean(1));
+
+    const char *request = json_object_to_json_string_ext(json_message, JSON_C_TO_STRING_PLAIN);
+    
+    send_json(request, client_fd);
+    json_object_put(json_message);
 
 }
-    */
 
 void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd) {
     char *zErrMsg = NULL;
@@ -385,14 +396,14 @@ int process_client_request(Client *c) {
     msgh.msg_controllen = sizeof(control);
 
 
-    int bytes_read;
-    if ((bytes_read = recvmsg(c->pollfd.fd, &msgh, 0)) == -1) {
-        perror("recvmsg");
-        return -1;
-    }
+        int bytes_read;
+        if ((bytes_read = recvmsg(c->pollfd.fd, &msgh, 0)) == -1) {
+            perror("recvmsg");
+            return -1;
+        }
 
-    if (bytes_read > 0) {
-        buffer[bytes_read] = '\0';      
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';      
 
         struct json_object *json_req = json_tokener_parse(buffer);
         if (!json_req) {
@@ -417,8 +428,8 @@ int process_client_request(Client *c) {
                                            "FROM articles INNER JOIN users "
                                            "ON articles.author_id = users.id "
                                            "WHERE is_published = TRUE;";
-            // NEED TO MAKE IT SEND AS JSON STRING IN IOV
-            //execute_query_and_send(db, query, c->pollfd.fd, 0);
+        
+            execute_query_and_send_json(db, query, c->pollfd.fd);
 
         } else if (strcmp(request, "GET_ARTICLE") == 0) {
             printf("GET_ARTICLES\n");
@@ -517,6 +528,7 @@ int process_client_request(Client *c) {
             }
         }
     } 
+    return -1;
 }
 
 void server(){

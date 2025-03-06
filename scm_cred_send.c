@@ -223,8 +223,17 @@
 
         /* Only send credentials once   */
 
-        msgh.msg_control = NULL;
-        msgh.msg_controllen = 0;
+        char buffer[BUFFER_SIZE] = {0};
+        char control[CMSG_SPACE(sizeof(int) * MAX_FDS)];  // Control buffer to hold multiple FDs
+    
+        // Set up the message header    
+        memset(&msgh, 0, sizeof(msgh));
+        iov.iov_base = buffer;
+        iov.iov_len = sizeof(buffer);
+        msgh.msg_iov = &iov;
+        msgh.msg_iovlen = 1;
+        msgh.msg_control = control;
+        msgh.msg_controllen = sizeof(control);
 
         //ssize_t bytes_read;
         //char buffer[1024];
@@ -259,7 +268,7 @@
         json_object_array_add(ids, json_object_new_int(2));                             
         json_object_object_add(json_obj, "ids", ids);
         */
-
+        /*
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("UPLOAD_ARTICLES"));
         struct json_object *json_mapping = json_object_new_object();
@@ -275,8 +284,39 @@
         sprintf(file_descriptor, "%d", fd);
 
         json_object_object_add(json_mapping, file_descriptor, json_object_new_string("love"));
+        */
 
-        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);       
+        struct json_object *json_obj = json_object_new_object();
+        json_object_object_add(json_obj, "action", json_object_new_string("LIST_ARTICLES"));
+
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+
+        iov.iov_base = request;
+        iov.iov_len = strlen(request) + 1;
+
+        msgh.msg_control = NULL;
+        msgh.msg_controllen = 0;
+
+        int bytes_read;
+        if ((bytes_read = sendmsg(sfd, &msgh, 0)) == -1) {
+            perror("sendmsg");
+            return -1;
+        }
+        
+        iov.iov_base = buffer;
+        iov.iov_len = sizeof(buffer);
+
+        if ((bytes_read = recvmsg(sfd, &msgh, 0)) == -1) {
+            perror("recvmsg");
+            return -1;
+        }
+    
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';
+            printf("%s\n", buffer);     
+        }
+        
+        /*
 
         if (send_files(sfd, &fd, 1, request)) {
             perror("write");
@@ -290,6 +330,7 @@
         int num_fds;
     
         int *fds = receive_fds(sfd, &num_fds);
+
     
         printf("verifying fd\n");
         //Verify the received FD
@@ -310,6 +351,9 @@
             printf("Failed to receive file descriptors\n");
             
         }
+
+        */
+
 
         // ssize_t bytes_read;
         // char buffer[1024];
