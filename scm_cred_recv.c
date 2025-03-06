@@ -16,6 +16,7 @@ typedef struct {
 
 sqlite3* db;
 
+
 #define SUDO = "sudo"
 
 typedef struct {
@@ -25,7 +26,7 @@ typedef struct {
 } query_context_t;
 
 
-void send_file(void * context){
+void send_file(void* context){
 
     query_context_t *ctx = (query_context_t *)context;  
     int sfd = ctx->client_socket;
@@ -120,7 +121,7 @@ static int send_error(const char *error_msg, int client_fd) {
 }
 
 static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
-    printf("cb_send_restults\n");
+    printf("cb_send_results\n");
     query_context_t *ctx = (query_context_t *)context;  
     char buffer[1024];  
     buffer[0] = '\0';  

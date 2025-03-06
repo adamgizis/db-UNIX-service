@@ -1,47 +1,53 @@
     #include "scm_cred.h"
 
-
-    int recv_fd(int socket) {
+    int* receive_fds(int socket, int *num_fds) {
         struct msghdr msgh;
-        msgh.msg_name = NULL;
-        msgh.msg_namelen = 0;
-        
-        // Control message buffer
-        // single 
-        size_t cmsgbuf[CMSG_SPACE(sizeof(int))];
-        memset(cmsgbuf, 0, sizeof(cmsgbuf));
-
-        // dummy
         struct iovec iov;
-        int data = 12345;
-        iov.iov_base = &data;
-        iov.iov_len = sizeof(data);
+        char buf[1];  // Dummy buffer for message data
+        char control[CMSG_SPACE(sizeof(int) * MAX_FDS)];  // Control buffer to hold multiple FDs
+    
+        // Set up the message header
+        memset(&msgh, 0, sizeof(msgh));
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
         msgh.msg_iov = &iov;
         msgh.msg_iovlen = 1;
-
-        // Set up control message
-        msgh.msg_control = cmsgbuf;
-        msgh.msg_controllen = sizeof(cmsgbuf);
-
-        // recieve
+        msgh.msg_control = control;
+        msgh.msg_controllen = sizeof(control);
+    
+        // Receive message
         if (recvmsg(socket, &msgh, 0) == -1) {
             perror("recvmsg");
-            return -1;
+            return NULL;
         }
-
-        // Extract file descriptor
+    
+        // Extract control message
         struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msgh);
         if (cmsg == NULL || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
             fprintf(stderr, "Invalid control message\n");
-            return -1;
-        }   
+            return NULL;
+        }
 
-        int fd;
-        memcpy(&fd, CMSG_DATA(cmsg), sizeof(int));
-        return fd;
+        // Determine number of FDs received
+        *num_fds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+        if (*num_fds <= 0) {
+            fprintf(stderr, "No file descriptors received\n");
+            return NULL;
+        }
+    
+        // Allocate memory for FD list
+        int *fds = malloc(*num_fds * sizeof(int));
+        if (!fds) {
+            perror("malloc");
+            return NULL;
+        }
+    
+        // Copy received FDs
+        memcpy(fds, CMSG_DATA(cmsg), *num_fds * sizeof(int));
+    
+        return fds;  // Caller is responsible for freeing this
     }
-
-
+    
     int
     main()
     {
@@ -174,27 +180,37 @@
 
         printf("recieving fd\n");
         // Receive the file descriptor
-        int received_fd = recv_fd(sfd);
-        if (received_fd == -1) {
-            close(sfd);
-            errExit("Can't Read file descriptor");
-        }
-
+        int num_fds;
+    
+        int *fds = receive_fds(sfd, &num_fds);
+    
         printf("verifying fd\n");
         //Verify the received FD
-        if (fcntl(received_fd, F_GETFD) == -1) {
-            close(sfd);
-            errExit("Invalid file descriptor");
-        }
-        printf("Received file descriptor: %d\n", received_fd);
-
-        ssize_t bytes_read;
-        char buffer[1024];
+        if (fds) {
+            printf("Received %d file descriptors:\n", num_fds);
+            for (int i = 0; i < num_fds; i++) {
+                printf("Recieved %d\n", fds[i]);
+                ssize_t bytes_read;
+                char buffer[1024];
+                    
+                printf("printing results\n");   
+                while((bytes_read = read(fds[i], buffer, sizeof(buffer))) > 0) {
+                    write(STDOUT_FILENO, buffer, bytes_read);
+                }
+            }
+            free(fds);
+        } else {
+            printf("Failed to receive file descriptors\n");
             
-        printf("printing results\n");   
-        while((bytes_read = read(received_fd, buffer, sizeof(buffer))) > 0) {
-            write(STDOUT_FILENO, buffer, bytes_read);
         }
+
+        // ssize_t bytes_read;
+        // char buffer[1024];
+            
+        // printf("printing results\n");   
+        // while((bytes_read = read(received_fd, buffer, sizeof(buffer))) > 0) {
+        //     write(STDOUT_FILENO, buffer, bytes_read);
+        // }
 
 
         sleep(30);
