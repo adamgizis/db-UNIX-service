@@ -663,8 +663,6 @@ void server(){
                 struct ucred rcred;
 
                 memcpy(&rcred, CMSG_DATA(cmsgp), sizeof(struct ucred));
-                printf("Received credentials: pid=%ld, uid=%ld, gid=%ld\n",
-                        (long)rcred.pid, (long)rcred.uid, (long)rcred.gid);
 
                 socklen_t len = sizeof(struct ucred);
                 if (getsockopt(new_client, SOL_SOCKET, SO_PEERCRED, &c->creds, &len) == -1)
@@ -674,23 +672,21 @@ void server(){
                     (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
 
                 num_clients++;
-
             
+                struct passwd *pw = getpwuid(c->creds.uid);
+                
+                // char query[BUFFER_SIZE];
+                // snprintf(query, sizeof(query), "INSERT OR IGNORE INTO users (id, username, role)"
+                //                                 "VALUES (%d, '%s', 'user');", c->creds.uid, pw->pw_name);
 
-                    struct passwd *pw = getpwuid(c->creds.uid);
-                    
-                    char query[BUFFER_SIZE];
-                    snprintf(query, sizeof(query), "INSERT OR IGNORE INTO users (id, username, role)"
-                                                    "VALUES (%d, '%s', 'user');", c->creds.uid, pw->pw_name);
-
-                    char *zErrMsg = NULL;
-                    if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
-                        char error_msg[512];
-                        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-                        send_error(error_msg, c->pollfd.fd);
-                        sqlite3_free(zErrMsg);
-                    }
-            
+                // char *zErrMsg = NULL;
+                // if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
+                //     char error_msg[512];
+                //     snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+                //     send_error(error_msg, c->pollfd.fd);
+                //     sqlite3_free(zErrMsg);
+                // }
+        
                 printf("server: created client connection %d\n", new_client);
             } else {
                 close(new_client);

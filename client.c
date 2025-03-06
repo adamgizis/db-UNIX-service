@@ -2,8 +2,6 @@
 
 int main() {
     int sfd = client_connect();
-    
-    
     int ids[] = {1, 2};  
     int num_ids = 2;  
 
@@ -20,5 +18,7 @@ int main() {
     } else {
         printf("Failed to retrieve articles.\n");
     }
+	sleep(30);
 	close_connection(sfd);
 }
+
