@@ -1,5 +1,87 @@
     #include "scm_cred.h"
 
+
+
+    // int* fdList has to be a list of open fds
+    //    int *fdList = malloc(fdAllocSize);
+    /*
+    code to use if filepaths is the path to all of the files that need to be opened.
+    if (fdList == NULL)
+    errExit("calloc");
+
+    for (int j = 0; j < fdCnt; j++) {
+    fdList[j] = open(filepaths[j], O_RDONLY);
+    if (fdList[j] == -1)
+        errExit("open");
+    }
+    */
+
+    int send_files(int sfd, int* fdList, int* fdCnt){
+        
+        // depends how you want to handle this
+        if(*fdCnt == 0){
+            return -1;
+        }
+
+
+        size_t fdAllocSize = sizeof(int) * (*fdCnt);
+        size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
+
+        char *controlMsg = malloc(controlMsgSize);
+        if (controlMsg == NULL)
+            errExit("malloc");
+            return -1;
+
+
+        memset(controlMsg, 0, controlMsgSize);
+        
+        struct msghdr msgh;
+        msgh.msg_name = NULL;
+        msgh.msg_namelen = 0;
+
+
+        // dummy variable
+        struct iovec iov;
+        int data = 12345;
+        iov.iov_base = &data;
+        iov.iov_len = sizeof(data);
+        msgh.msg_iov = &iov;
+        msgh.msg_iovlen = 1;
+    
+        /* Place a pointer to the ancillary data, and size of that data,
+        in the 'msghdr' structure that will be passed to sendmsg() */
+
+        msgh.msg_control = controlMsg;
+        msgh.msg_controllen = controlMsgSize;
+
+        /* Set message header to describe the ancillary data that
+        we want to send */
+
+        /* First, the file descriptor list */
+
+        struct cmsghdr *cmsgp = CMSG_FIRSTHDR(&msgh);
+        cmsgp->cmsg_level = SOL_SOCKET;
+        cmsgp->cmsg_type = SCM_RIGHTS;
+
+        /* The ancillary message must include space for the required number
+        of file descriptors */
+
+        cmsgp->cmsg_len = CMSG_LEN(fdAllocSize);
+
+
+        // see code above function
+        memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
+
+        ssize_t ns = sendmsg(sfd, &msgh, 0);
+        if (ns == -1)
+            errExit("sendmsg");
+            return -1;
+
+        printf("sendmsg() returned %zd\n", ns);
+        return 0;
+
+    }
+
     int* receive_fds(int socket, int *num_fds) {
         struct msghdr msgh;
         struct iovec iov;
