@@ -14,10 +14,13 @@
 #include <json-c/json.h>
 #include <sys/stat.h>      
 #include <sqlite3.h>
+#include <pwd.h>
+#include <sys/sendfile.h>
 #include <fcntl.h>
 
 #define SOCK_PATH "scm_cred"
 #define DB_PATH "database/wiki.db"
+#define WIKI_PATH "wiki_content/"
 
 #define BUFFER_SIZE 1024
 #define MAX_FDS 16

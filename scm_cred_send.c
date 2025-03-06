@@ -16,15 +16,15 @@
     }
     */
 
-    int send_files(int sfd, int* fdList, int* fdCnt){
+    int send_files(int sfd, int* fdList, int fdCnt, const char* json_string){
         
         // depends how you want to handle this
-        if(*fdCnt == 0){
+        if(fdCnt == 0){
             return -1;
         }
 
 
-        size_t fdAllocSize = sizeof(int) * (*fdCnt);
+        size_t fdAllocSize = sizeof(int) * (fdCnt);
         size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
 
         char *controlMsg = malloc(controlMsgSize);
@@ -39,12 +39,9 @@
         msgh.msg_name = NULL;
         msgh.msg_namelen = 0;
 
-
-        // dummy variable
         struct iovec iov;
-        int data = 12345;
-        iov.iov_base = &data;
-        iov.iov_len = sizeof(data);
+        iov.iov_base = json_string;
+        iov.iov_len = strlen(json_string);  
         msgh.msg_iov = &iov;
         msgh.msg_iovlen = 1;
     
@@ -71,6 +68,10 @@
 
         // see code above function
         memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
+
+        if(cmsgp->cmsg_type == SCM_RIGHTS){
+        printf("its the msg_control!\n");    
+        }
 
         ssize_t ns = sendmsg(sfd, &msgh, 0);
         if (ns == -1){
@@ -249,6 +250,7 @@
         // Test Query
         //const char *query = "SELECT * FROM users";
 
+        /*
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLE"));
 
@@ -256,10 +258,27 @@
         json_object_array_add(ids, json_object_new_int(1)); 
         json_object_array_add(ids, json_object_new_int(2));                             
         json_object_object_add(json_obj, "ids", ids);
+        */
 
-        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+        struct json_object *json_obj = json_object_new_object();
+        json_object_object_add(json_obj, "action", json_object_new_string("UPLOAD_ARTICLES"));
+        struct json_object *json_mapping = json_object_new_object();
+        json_object_object_add(json_obj, "file_mapping", json_mapping);
+        int fd = open("./love.txt", O_RDWR);
+        if(fd < 0){
+            perror("open");
+            close(sfd);
+            exit(EXIT_FAILURE);
+        }
 
-        if (write(sfd, request, strlen(request)) == -1) {
+        char file_descriptor[20];
+        sprintf(file_descriptor, "%d", fd);
+
+        json_object_object_add(json_mapping, file_descriptor, json_object_new_string("love"));
+
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);       
+
+        if (send_files(sfd, &fd, 1, request)) {
             perror("write");
             close(sfd);
             exit(EXIT_FAILURE);

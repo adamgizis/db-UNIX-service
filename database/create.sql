@@ -21,7 +21,7 @@ CREATE TABLE articles (
 
 
 INSERT INTO users (id, username, role) VALUES
-(0, "root", "admin");
+(0, 'root', "admin");
 
 
 INSERT INTO articles (title, file_path, author_id, is_published)

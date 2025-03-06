@@ -42,6 +42,42 @@ for (int j = 0; j < fdCnt; j++) {
 }
 */
 
+int* receive_fds(struct msghdr *msgh, int *num_fds) {
+
+    struct cmsghdr *cmsg;
+    int found_fd = 0;
+    for (cmsg = CMSG_FIRSTHDR(msgh); cmsg != NULL; cmsg = CMSG_NXTHDR(msgh, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            // Process SCM_RIGHTS message
+            found_fd = 1;
+            break;
+        }
+    }
+    if (!found_fd) {
+        fprintf(stderr, "No SCM_RIGHTS message received\n");
+        return NULL;
+    }
+
+    // Determine number of FDs received
+    *num_fds = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+    if (*num_fds <= 0) {
+        fprintf(stderr, "No file descriptors received\n");
+        return NULL;
+    }
+
+    // Allocate memory for FD list
+    int *fds = malloc(*num_fds * sizeof(int));
+    if (!fds) {
+        perror("malloc");
+        return NULL;
+    }
+
+    // Copy received FDs
+    memcpy(fds, CMSG_DATA(cmsg), *num_fds * sizeof(int));
+
+    return fds;  // Caller is responsible for freeing this
+}
+
 int send_files(query_context_t *context){
 
     printf("send files\n");
@@ -70,7 +106,7 @@ int send_files(query_context_t *context){
     msgh.msg_namelen = 0;
 
 
-    // dummy variable
+        // dummy variable
     struct iovec iov;
     int data = 12345;
     iov.iov_base = &data;
@@ -210,6 +246,7 @@ static int send_error(const char *error_msg, int client_fd) {
 
 static int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
     printf("cb_send_fds\n");
+    (void)azColName;
     query_context_t *ctx = (query_context_t *)context;  
     
     for (int i = 0; i < argc; i++) {
@@ -264,6 +301,7 @@ int format_ids(struct json_object *array, char *query) {
 
     return num_ids;
 }
+
 
 /*
 void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int num_fds) {
@@ -331,11 +369,160 @@ sqlite3* initiate_db() {
     return db;
 }
 
+int process_client_request(Client *c) {
+    struct msghdr msgh = c->msgh;
+    struct iovec iov = c->iov;
+    char buffer[BUFFER_SIZE] = {0};
+    char control[CMSG_SPACE(sizeof(int) * MAX_FDS)];  // Control buffer to hold multiple FDs
+
+    // Set up the message header    
+    memset(&msgh, 0, sizeof(msgh));
+    iov.iov_base = buffer;
+    iov.iov_len = sizeof(buffer);
+    msgh.msg_iov = &iov;
+    msgh.msg_iovlen = 1;
+    msgh.msg_control = control;
+    msgh.msg_controllen = sizeof(control);
+
+
+    int bytes_read;
+    if ((bytes_read = recvmsg(c->pollfd.fd, &msgh, 0)) == -1) {
+        perror("recvmsg");
+        return -1;
+    }
+
+    if (bytes_read > 0) {
+        buffer[bytes_read] = '\0';      
+
+        struct json_object *json_req = json_tokener_parse(buffer);
+        if (!json_req) {
+            char *error_msg = "Invalid JSON";
+            send_error(error_msg, c->pollfd.fd);
+            return -1;
+        }
+
+        struct json_object *json_obj;
+        if (!json_object_object_get_ex(json_req, "action", &json_obj)) {
+            send_error("Missing action field", c->pollfd.fd);
+            json_object_put(json_req);
+            return -1;
+        }
+        
+        const char *request = json_object_get_string(json_obj);                                       
+
+        if (strcmp(request, "LIST_ARTICLES") == 0) {
+            printf("LIST_ARTICLES\n");
+            json_object_put(json_req);
+            const char *query = "SELECT articles.id, title, username "
+                                           "FROM articles INNER JOIN users "
+                                           "ON articles.author_id = users.id "
+                                           "WHERE is_published = TRUE;";
+            // NEED TO MAKE IT SEND AS JSON STRING IN IOV
+            //execute_query_and_send(db, query, c->pollfd.fd, 0);
+
+        } else if (strcmp(request, "GET_ARTICLE") == 0) {
+            printf("GET_ARTICLES\n");
+            if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
+                send_error("No article ids given", c->pollfd.fd);
+                json_object_put(json_req);
+                return -1;
+            }
+
+            char query[BUFFER_SIZE] = {0};
+            strcpy(query, "SELECT file_path FROM articles WHERE id IN (");
+
+            int num_ids;
+            if ((num_ids = format_ids(json_obj, query)) < 0) {
+                send_error("ids must be given as a JSON array", c->pollfd.fd);
+                json_object_put(json_req);
+                return -1;
+            }
+
+            strcat(query, ");");
+
+            json_object_put(json_req);
+            execute_query_and_send_fds(db, query, c->pollfd.fd);
+
+        } else if (strcmp(request, "UPLOAD_ARTICLES") == 0){
+            printf("UPLOAD_ARTICLES\n");
+            int num_fds;
+            int *fds;
+            fds = receive_fds(&msgh, &num_fds);
+            if(!fds){
+                return -1;
+            }
+
+            struct json_object *file_mapping;
+            if (!json_object_object_get_ex(json_req, "file_mapping", &file_mapping)) {
+                fprintf(stderr, "\"file_mapping\" not found in JSON\n");
+                return -1;
+            }
+            
+            json_object_object_foreach(file_mapping, key, val) {
+                int src_fd = atoi(key);
+                const char *filename = json_object_get_string(val);
+
+                printf("File descriptor: %d, Filename: %s\n", src_fd, filename);
+
+                char file_path[BUFFER_SIZE];
+                snprintf(file_path, sizeof(file_path), "%s%s.md", WIKI_PATH, filename);
+
+                int wiki_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if(wiki_fd < 0){
+                    close(src_fd);
+                    send_error("invalid filename", c->pollfd.fd);
+                }
+
+                off_t offset = 0;
+                struct stat stat_buf;
+                fstat(src_fd, &stat_buf);
+
+                ssize_t bytes_copied = sendfile(wiki_fd, src_fd, &offset, stat_buf.st_size);
+                if (bytes_copied == -1) {
+                    send_error("Error during sendfile", c->pollfd.fd);
+                } 
+
+                close(src_fd);
+                close(wiki_fd);
+
+                /*
+                    NOT WORKING
+                char query[BUFFER_SIZE];
+                snprintf(query, sizeof(query), "INSERT INTO articles (title, file_path, author_id, is_published) "
+                                                "VALUES ( "
+                                                   "'%s', "
+                                                   "'%s',"
+                                                    "%d,"
+                                                   "1);", json_object_get_string(val), file_path, c->creds.uid);
+
+                                                   
+                char *zErrMsg = NULL;
+                if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
+                    char error_msg[512];
+                    snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+                    send_error(error_msg, c->pollfd.fd);
+                    sqlite3_free(zErrMsg);
+                }
+                    */
+            }
+
+        } else {
+            // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
+            if(is_query_read_only(db, buffer) && (c->creds.uid != 0)) {
+                //execute_query_and_send(db, buffer, c->pollfd.fd, 0);
+            } else {
+                char *error_msg = "Invalid credentials for database modification";
+                send_error(error_msg, c->pollfd.fd);
+                return -1;
+            }
+        }
+    } 
+}
+
 void server(){
 
     // Initialize the db
-    db = initiate_db();
-    printf("%s\n", DB_PATH);    
+    db = initiate_db();  
 
     if(!db) {
         errExit("initialize_db");
@@ -434,6 +621,23 @@ void server(){
                     (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
 
                 num_clients++;
+
+            
+
+                    struct passwd *pw = getpwuid(c->creds.uid);
+                    
+                    char query[BUFFER_SIZE];
+                    snprintf(query, sizeof(query), "INSERT OR IGNORE INTO users (id, username, role)"
+                                                    "VALUES (%d, '%s', 'user');", c->creds.uid, pw->pw_name);
+
+                    char *zErrMsg = NULL;
+                    if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
+                        char error_msg[512];
+                        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+                        send_error(error_msg, c->pollfd.fd);
+                        sqlite3_free(zErrMsg);
+                    }
+            
                 printf("server: created client connection %d\n", new_client);
             } else {
                 close(new_client);
@@ -460,74 +664,7 @@ void server(){
             }
 
             if (c->pollfd.revents & POLLIN) {       
-                char buffer[BUFFER_SIZE] = {0};
-			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
-                
-			    if (bytes_read > 0) {
-				    buffer[bytes_read] = '\0';      
-
-                    struct json_object *json_req = json_tokener_parse(buffer);
-                    if (!json_req) {
-                        char *error_msg = "Invalid JSON";
-                        send_error(error_msg, c->pollfd.fd);
-                        continue;
-                    }
-
-                    struct json_object *json_obj;
-                    if (!json_object_object_get_ex(json_req, "action", &json_obj)) {
-                        send_error("Missing action field", c->pollfd.fd);
-                        json_object_put(json_req);
-                        continue;
-                    }
-                    
-                    const char *request = json_object_get_string(json_obj);                                       
-
-                    if (strcmp(request, "LIST_ARTICLES") == 0) {
-                        printf("LIST_ARTICLES\n");
-                        json_object_put(json_req);
-                        const char *query = "SELECT articles.id, title, username "
-                                                       "FROM articles INNER JOIN users "
-                                                       "ON articles.author_id = users.id "
-                                                       "WHERE is_published = TRUE;";
-
-                        //execute_query_and_send(db, query, c->pollfd.fd, 0);
-
-                    } else if (strcmp(request, "GET_ARTICLE") == 0) {
-                        printf("GET_ARTICLES\n");
-                        if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
-                            send_error("No article ids given", c->pollfd.fd);
-                            json_object_put(json_req);
-                            continue;
-                        }
-
-                        char query[BUFFER_SIZE] = {0};
-                        strcpy(query, "SELECT file_path FROM articles WHERE id IN (");
-
-                        int num_ids;
-                        if ((num_ids = format_ids(json_obj, query)) < 0) {
-                            send_error("ids must be given as a JSON array", c->pollfd.fd);
-                            json_object_put(json_req);
-                            continue;
-                        }
-
-                        strcat(query, ");");
-
-                        json_object_put(json_req);
-                        execute_query_and_send_fds(db, query, c->pollfd.fd);
-
-                    } else if (strcmp(request, "UPLOAD_ARTICLES") == 0){
-
-                
-                    } else {
-                        if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
-                            //execute_query_and_send(db, buffer, c->pollfd.fd, 0);
-                        } else {
-                            char *error_msg = "Invalid credentials for database modification";
-                            send_error(error_msg, c->pollfd.fd);
-                            continue;
-                        }
-                    }
-			    }   
+                process_client_request(c);
             }
         }
     }
