@@ -1,1 +1,1 @@
-Invalid credentials for database modification
+ids must be given as a JSON array

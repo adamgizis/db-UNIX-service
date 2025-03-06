@@ -19,4 +19,5 @@
 #define SOCK_PATH "scm_cred"
 #define DB_PATH "database/wiki.db"
 
+#define BUFFER_SIZE 1024
 #define MAX_FDS 16

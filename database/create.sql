@@ -11,7 +11,7 @@ DROP TABLE IF EXISTS articles;
 CREATE TABLE articles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL UNIQUE,
-    content TEXT NOT NULL,
+    file_path TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     author_id INTEGER NOT NULL,
@@ -24,10 +24,10 @@ INSERT INTO users (id, username, role) VALUES
 (0, "root", "admin");
 
 
-INSERT INTO articles (title, content, author_id, is_published)
+INSERT INTO articles (title, file_path, author_id, is_published)
 VALUES (
     "Getting Started",
-    "Welcome to the wiki!",
+    "./wiki_content/getting_started.",
     0,
     1
 );
