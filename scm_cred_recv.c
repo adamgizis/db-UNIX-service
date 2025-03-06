@@ -360,8 +360,7 @@ int is_query_read_only(sqlite3 *db, const char *query) {
     return is_read_only;
 }
 
-sqlite3* initiate_db() {
-    sqlite3 *db;
+sqlite3* initiate_db(sqlite3* db) {
     if (sqlite3_open(DB_PATH, &db) != SQLITE_OK) {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         return NULL;
@@ -506,23 +505,77 @@ int process_client_request(Client *c) {
                     */
             }
 
-        } else {
-            // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
-            if(is_query_read_only(db, buffer) && (c->creds.uid != 0)) {
-                //execute_query_and_send(db, buffer, c->pollfd.fd, 0);
-            } else {
-                char *error_msg = "Invalid credentials for database modification";
-                send_error(error_msg, c->pollfd.fd);
+        } else if (strcmp(request, "DELETE_ARTICLES") == 0){
+          // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
+            printf("DELETE_ARTICLES");
+
+            // Ensure "ids" is present in the JSON request
+            if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
+                send_error("No article ids given", c->pollfd.fd);
+                json_object_put(json_req);
                 return -1;
             }
+
+            // Start building the SQL query safely
+            const char *base_query = (c->creds.uid != 0) ?
+                "DELETE FROM articles WHERE author_id = ? AND id IN (" :
+                "DELETE FROM articles WHERE id IN (";
+
+            char query[BUFFER_SIZE] = {0};
+            snprintf(query, sizeof(query), "%s", base_query);
+
+            // Format the article IDs into the query
+            int num_ids = format_ids(json_obj, query);
+            if (num_ids < 0) {
+                send_error("ids must be given as a JSON array", c->pollfd.fd);
+                json_object_put(json_req);
+                return -1;
+            }
+
+            strcat(query, ");"); // Close the IN() clause
+
+            // Prepare statement
+            sqlite3_stmt *stmt;
+            if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
+                fprintf(stderr, "SQL Error: %s\n", sqlite3_errmsg(db));
+                send_error("Failed to prepare delete query", c->pollfd.fd);
+                json_object_put(json_req);
+                return -1;
+            }
+
+            // Bind parameters (only bind UID if needed)
+            if (c->creds.uid != 0) {
+                sqlite3_bind_int(stmt, 1, c->creds.uid); // Bind user ID if needed
+            }
+
+            // Execute delete query
+            if (sqlite3_step(stmt) != SQLITE_DONE) {
+                fprintf(stderr, "Deletion failed: %s\n", sqlite3_errmsg(db));
+                send_error("Failed to delete articles", c->pollfd.fd);
+                sqlite3_finalize(stmt);
+                json_object_put(json_req);
+                return -1;
+            } else {
+                int affected_rows = sqlite3_changes(db); // Get the number of affected rows
+                if (affected_rows > 0) {
+                    send_error("Successfully deleted articles.", c->pollfd.fd);
+                } else {
+                    send_error("No articles matched the criteria.", c->pollfd.fd);
+                }
+            }
+
+            // Cleanup
+            sqlite3_finalize(stmt);
+            json_object_put(json_req);
         }
-    } 
+    }
+    return 0;
 }
 
 void server(){
 
     // Initialize the db
-    db = initiate_db();  
+    db = initiate_db(db);  
 
     if(!db) {
         errExit("initialize_db");

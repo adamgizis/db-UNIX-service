@@ -17,7 +17,6 @@
 
 
 
-
 static int cb_send_results(void *socket_fd, int argc, char **argv, char **azColName) {
     int client_socket = *(int *)socket_fd;  // Cast void* back to int*
     char buffer[1024];  // Temporary buffer to hold each row's data
