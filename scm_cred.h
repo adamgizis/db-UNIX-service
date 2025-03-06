@@ -15,7 +15,7 @@
 #include <sys/stat.h>      
 #include <sqlite3.h>
 #include <pwd.h>
-#include <sys/sendfile.h>
+#include <sys/sendfile.h>     
 #include <fcntl.h>
 
 #define SOCK_PATH "scm_cred"

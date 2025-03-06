@@ -79,12 +79,11 @@
             return -1;
         }
 
-        printf("sendmsg() returned %zd\n", ns);
-        return 0;
+        return ns;
 
     }
 
-    int* receive_fds(int socket, int *num_fds) {
+    int* extract_fds(int socket, int *num_fds) {
         struct msghdr msgh;
         struct iovec iov;
         char buf[1];  // Dummy buffer for message data
@@ -268,7 +267,7 @@
         json_object_array_add(ids, json_object_new_int(2));                             
         json_object_object_add(json_obj, "ids", ids);
         */
-        /*
+
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("UPLOAD_ARTICLES"));
         struct json_object *json_mapping = json_object_new_object();
@@ -280,14 +279,17 @@
             exit(EXIT_FAILURE);
         }
 
-        char file_descriptor[20];
+        char file_descriptor[4];
         sprintf(file_descriptor, "%d", fd);
 
         json_object_object_add(json_mapping, file_descriptor, json_object_new_string("love"));
-        */
+    
+        /*
 
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("LIST_ARTICLES"));
+
+        */
 
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
@@ -298,9 +300,9 @@
         msgh.msg_controllen = 0;
 
         int bytes_read;
-        if ((bytes_read = sendmsg(sfd, &msgh, 0)) == -1) {
+        if ((bytes_read = send_files(sfd, &fd, 1, request)) == -1) {
             perror("sendmsg");
-            return -1;
+            return -1; 
         }
         
         iov.iov_base = buffer;
@@ -311,8 +313,9 @@
             return -1;
         }
     
+        //buffer =  msgh.msg_iov->iov_base;
         if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
+            msgh.msg_iov->iov_base[bytes_read] = '\0';
             printf("%s\n", buffer);     
         }
         
@@ -329,7 +332,7 @@
         // Receive the file descriptor
         int num_fds;
     
-        int *fds = receive_fds(sfd, &num_fds);
+        int *fds = extract_fds(sfd, &num_fds);
 
     
         printf("verifying fd\n");

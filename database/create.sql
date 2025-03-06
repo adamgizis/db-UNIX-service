@@ -34,8 +34,8 @@ VALUES (
 
 INSERT INTO articles (title, file_path, author_id, is_published)
 VALUES (
-    "Ain't the net swell?",
-    "./wiki_content/motivation.txt",
+    'Aint the net swell?',
+    './wiki_content/motivation.txt',
     0,
     1
 );

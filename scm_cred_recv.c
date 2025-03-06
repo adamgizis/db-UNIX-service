@@ -42,7 +42,7 @@ for (int j = 0; j < fdCnt; j++) {
 }
 */
 
-int* receive_fds(struct msghdr *msgh, int *num_fds) {
+int* extract_fds(struct msghdr *msgh, int *num_fds) {
 
     struct cmsghdr *cmsg;
     int found_fd = 0;
@@ -150,91 +150,13 @@ int send_files(query_context_t *context){
 
 }
 
-
-void send_file(void* context){
-
-    query_context_t *ctx = (query_context_t *)context;  
-    int sfd = ctx->client_socket;
-    //char * path = ctx->filepath;
-    // always just sending the one file for now
-    size_t fdAllocSize = sizeof(int);
-    size_t controlMsgSize = CMSG_SPACE(fdAllocSize);
-    char *controlMsg = malloc(controlMsgSize);
-    if (controlMsg == NULL)
-        errExit("malloc");
-
-    /* The control message buffer must be zero-initialized in order for
-       the CMSG_NXTHDR() macro to work correctly */ 
-
-    memset(controlMsg, 0, controlMsgSize);
-
-    /* The 'msg_name' field can be used to specify the address of the
-       destination socket when sending a datagram. However, we do not
-       need to use this field because we use connect() below, which sets
-       a default outgoing address for datagrams. */
-
-    struct msghdr msgh;
-    msgh.msg_name = NULL;
-    msgh.msg_namelen = 0;
-    
-    // dummy
-    struct iovec iov;
-    int data = 12345;
-    iov.iov_base = &data;
-    iov.iov_len = sizeof(data);
-    msgh.msg_iov = &iov;
-    msgh.msg_iovlen = 1;
-
-    /* Place a pointer to the ancillary data, and size of that data,
-       in the 'msghdr' structure that will be passed to sendmsg() */
-
-    msgh.msg_control = controlMsg;
-    msgh.msg_controllen = controlMsgSize;
-
-    /* Set message header to describe the ancillary data that
-       we want to send */
-
-    /* First, the file descriptor list */
-
-    struct cmsghdr *cmsgp = CMSG_FIRSTHDR(&msgh);
-    cmsgp->cmsg_level = SOL_SOCKET;
-    cmsgp->cmsg_type = SCM_RIGHTS;
-
-    /* The ancillary message must include space for the required number
-       of file descriptors */
-
-    cmsgp->cmsg_len = CMSG_LEN(fdAllocSize);
-
-    /* Open files named on the command line, and copy the resulting block of
-       file descriptors into the data field of the ancillary message */
-    int fdCnt = 1;
-    int *fdList = malloc(fdAllocSize);
-    if (fdList == NULL)
-        errExit("calloc");
-
-    /* Open the files named on the command line, placing the returned file
-       descriptors into the ancillary data */
-
-    for (int j = 0; j < fdCnt; j++) {
-        //fdList[j] = open(path, O_RDONLY);
-        if (fdList[j] == -1)
-            errExit("open");
-    }
-
-    memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
-
-    ssize_t ns = sendmsg(sfd, &msgh, 0);
-    if (ns == -1)
-        errExit("sendmsg");
-}
-
 void send_json(const char *message, int client_fd){
     struct msghdr msgh;
     memset(&msgh, 0, sizeof(msgh));
 
     struct iovec iov;
     iov.iov_base = message;
-    iov.iov_len = strlen(message);
+    iov.iov_len = strlen(message) + 1;
     
     msgh.msg_iov = &iov;
     msgh.msg_iovlen = 1;
@@ -250,16 +172,15 @@ void send_json(const char *message, int client_fd){
 }
 
 static int send_error(const char *error_msg, int client_fd) {
-    int error_fd = open("error.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    query_context_t context;
-    context.client_socket = client_fd;
+    struct json_object *json_err = json_object_new_object();
+    json_object_object_add(json_err, "success", json_object_new_boolean(0));
+    json_object_object_add(json_err, "message", json_object_new_string(error_msg));
+    const char *err = json_object_to_json_string_ext(json_err, JSON_C_TO_STRING_PLAIN);
+    printf("%s\n", err);
 
-    if (write(error_fd, error_msg, strlen(error_msg)) < 0) {
-        perror("Write to file descriptor failed");
-        return 1;
-    }
+    json_object_put(json_err);
 
-    send_file(&context);
+    send_json(err, client_fd);
 
     return 0;
 }
@@ -292,7 +213,7 @@ static int cb_send_json(void *json_array, int argc, char **argv, char **azColNam
         json_object_object_add(article, azColName[i], json_object_new_string(argv[i]));
     }   
 
-    json_object_array_add(json_array, article);                                         
+    json_object_array_add(json_arr, article);                                         
 
     return 0;
 }
@@ -347,7 +268,7 @@ void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd) {
     context->client_socket = client_fd;
     context->num_fds = 0;
 
-    if (sqlite3_exec(db, query, cb_send_fds,    context, &zErrMsg) != SQLITE_OK) {
+    if (sqlite3_exec(db, query, cb_send_fds, context, &zErrMsg) != SQLITE_OK) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
         send_error(error_msg, client_fd);
@@ -458,7 +379,7 @@ int process_client_request(Client *c) {
             printf("UPLOAD_ARTICLES\n");
             int num_fds;
             int *fds;
-            fds = receive_fds(&msgh, &num_fds);
+            fds = extract_fds(&msgh, &num_fds);
             if(!fds){
                 return -1;
             }
@@ -484,28 +405,23 @@ int process_client_request(Client *c) {
                     send_error("invalid filename", c->pollfd.fd);
                 }
 
-                off_t offset = 0;
-                struct stat stat_buf;
-                fstat(src_fd, &stat_buf);
-
-                ssize_t bytes_copied = sendfile(wiki_fd, src_fd, &offset, stat_buf.st_size);
-                if (bytes_copied == -1) {
-                    send_error("Error during sendfile", c->pollfd.fd);
-                } 
+                int num_bytes;
+                char buffer[BUFFER_SIZE];
+                while((num_bytes = read(src_fd, buffer, sizeof(buffer))) > 0){
+                    if((num_bytes = write(wiki_fd, buffer, sizeof(buffer))) == -1){
+                        send_error("failed opening file descriptor", c->pollfd.fd);
+                        return -1;
+                    }
+                } if (num_bytes == -1) {
+                    send_error("failed opening file descriptor", c->pollfd.fd);
+                    return -1;
+                }
 
                 close(src_fd);
                 close(wiki_fd);
 
-                /*
-                    NOT WORKING
-                char query[BUFFER_SIZE];
-                snprintf(query, sizeof(query), "INSERT INTO articles (title, file_path, author_id, is_published) "
-                                                "VALUES ( "
-                                                   "'%s', "
-                                                   "'%s',"
-                                                    "%d,"
-                                                   "1);", json_object_get_string(val), file_path, c->creds.uid);
-
+                char query[BUFFER_SIZE * 2];    
+                snprintf(query, sizeof(query), "INSERT INTO articles (title, file_path, author_id, is_published) VALUES ('%s','%s',%d,1);", json_object_get_string(val), file_path, c->creds.uid);
                                                    
                 char *zErrMsg = NULL;
                 if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
@@ -514,7 +430,13 @@ int process_client_request(Client *c) {
                     send_error(error_msg, c->pollfd.fd);
                     sqlite3_free(zErrMsg);
                 }
-                    */
+
+                struct json_object *json_reply = json_object_new_object();
+                json_object_object_add(json_reply, "success", json_object_new_boolean(1));
+                const char *reply = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+                json_object_put(json_reply);
+
+                send_json(reply, c->pollfd.fd);
             }
 
         } else {
@@ -634,21 +556,19 @@ void server(){
 
                 num_clients++;
 
-            
-
-                    struct passwd *pw = getpwuid(c->creds.uid);
+                struct passwd *pw = getpwuid(c->creds.uid);
                     
-                    char query[BUFFER_SIZE];
-                    snprintf(query, sizeof(query), "INSERT OR IGNORE INTO users (id, username, role)"
-                                                    "VALUES (%d, '%s', 'user');", c->creds.uid, pw->pw_name);
+                char query[BUFFER_SIZE];
+                snprintf(query, sizeof(query), "INSERT OR IGNORE INTO users (id, username, role)"
+                                                "VALUES (%d, '%s', 'user');", c->creds.uid, pw->pw_name);
 
-                    char *zErrMsg = NULL;
-                    if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
-                        char error_msg[512];
-                        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-                        send_error(error_msg, c->pollfd.fd);
-                        sqlite3_free(zErrMsg);
-                    }
+                char *zErrMsg = NULL;
+                if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
+                    char error_msg[512];
+                    snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+                    send_error(error_msg, c->pollfd.fd);
+                    sqlite3_free(zErrMsg);
+                }
             
                 printf("server: created client connection %d\n", new_client);
             } else {
