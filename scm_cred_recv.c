@@ -122,7 +122,7 @@ static int send_error(const char *error_msg, int client_fd) {
 static int cb_send_results(void *context, int argc, char **argv, char **azColName) {
     printf("cb_send_restults\n");
     query_context_t *ctx = (query_context_t *)context;  
-    char buffer[1024];  
+    char buffer[BUFFER_SIZE];  
     buffer[0] = '\0';  
     
     for (int i = 0; i < argc; i++) {
@@ -143,7 +143,51 @@ static int cb_send_results(void *context, int argc, char **argv, char **azColNam
     return 0;
 }
 
-void execute_query_and_send(sqlite3 *db, const char *query, int client_fd) {
+static int cb_send_results_multiple_fds(void *context, int argc, char **argv, char **azColName) {
+    printf("cb_send_restults_multiple\n");
+    query_context_t *ctx = (query_context_t *)context;  
+    char buffer[BUFFER_SIZE];  
+    buffer[0] = '\0';  
+    
+    for (int i = 0; i < argc; i++) {
+        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), 
+                 "%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+    }
+    strcat(buffer, "\n");
+
+    printf("%s", buffer);       
+    
+    if (write(ctx->output_fd, buffer, strlen(buffer)) < 0) {
+        perror("Write to file descriptor failed");
+        return 1;
+    }
+
+    send_file((void*) context);
+
+    return 0;
+}
+
+int format_ids(struct json_object *array, char *query) {
+    if (json_object_get_type(array) != json_type_array) {
+        return -1;
+    }
+
+    int num_ids = json_object_array_length(array);
+    for(int i = 0; i < num_ids; i++) {
+        struct json_object *id = json_object_array_get_idx(array, i);
+        char buffer[64];
+        if (i < num_ids - 1)
+            snprintf(buffer, sizeof(buffer), "%d, ", json_object_get_int(id));
+        else
+            snprintf(buffer, sizeof(buffer), "%d", json_object_get_int(id));
+
+        strcat(query, buffer);
+    }
+
+    return num_ids;
+}
+
+void execute_query_and_send(sqlite3 *db, const char *query, int client_fd, int num_fds) {
     char *zErrMsg = NULL;
     int query_fd = open("query.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
     query_context_t context;
@@ -153,12 +197,21 @@ void execute_query_and_send(sqlite3 *db, const char *query, int client_fd) {
 
     printf("Executing: %s\n", query);
 
-    if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
-        char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
-        write(context.output_fd, error_msg, strlen(error_msg));
-        sqlite3_free(zErrMsg);
-    }
+    if(num_fds > 1) {
+        if (sqlite3_exec(db, query, cb_send_results_multiple_fds, &context, &zErrMsg) != SQLITE_OK) {
+            char error_msg[512];
+            snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+            write(context.output_fd, error_msg, strlen(error_msg));
+            sqlite3_free(zErrMsg);
+        }
+    } else{
+        if (sqlite3_exec(db, query, cb_send_results, &context, &zErrMsg) != SQLITE_OK) {
+            char error_msg[512];
+            snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+            write(context.output_fd, error_msg, strlen(error_msg));
+            sqlite3_free(zErrMsg);
+        }
+    }                   
 
 }
 
@@ -262,8 +315,6 @@ void server(){
                 c->msgh.msg_control = c->control_buf;
                 c->msgh.msg_controllen = sizeof(c->control_buf);
 
-
-
                 ssize_t nr = recvmsg(c->pollfd.fd, &c->msgh, 0);
                 if (nr == -1)
                     errExit("recvmsg");
@@ -315,11 +366,10 @@ void server(){
             }
 
             if (c->pollfd.revents & POLLIN) {       
-                
-                char buffer[1024];
+                char buffer[BUFFER_SIZE] = {0};
 			    int bytes_read = read(c->pollfd.fd, buffer, sizeof(buffer));
 			    if (bytes_read > 0) {
-				    buffer[bytes_read] = '\0';
+				    buffer[bytes_read] = '\0';      
 
                     struct json_object *json_req = json_tokener_parse(buffer);
                     if (!json_req) {
@@ -328,21 +378,51 @@ void server(){
                         continue;
                     }
 
-                    struct json_object *action_obj;
-                    if (!json_object_object_get_ex(json_req, "action", &action_obj)) {
+                    struct json_object *json_obj;
+                    if (!json_object_object_get_ex(json_req, "action", &json_obj)) {
                         send_error("Missing action field", c->pollfd.fd);
                         json_object_put(json_req);
                         continue;
                     }
                     
-                    const char *request = json_object_get_string(action_obj);                                       
+                    const char *request = json_object_get_string(json_obj);                                       
 
-                    if (strcmp(request, "GET_ARTICLES") == 0) {
-                        printf("GET_ARTICLES\n");   
-                        execute_query_and_send(db, "SELECT articles.id, title, username FROM articles INNER JOIN users ON articles.author_id = users.id WHERE is_published = TRUE;", c->pollfd.fd);
+                    if (strcmp(request, "LIST_ARTICLES") == 0) {
+                        printf("LIST_ARTICLES\n");
+                        json_object_put(json_req);
+                        const char *query = "SELECT articles.id, title, username "
+                                                       "FROM articles INNER JOIN users "
+                                                       "ON articles.author_id = users.id "
+                                                       "WHERE is_published = TRUE;";
+
+                        execute_query_and_send(db, query, c->pollfd.fd, 0);
+
+                    } else if (strcmp(request, "GET_ARTICLE") == 0) {
+                        printf("GET_ARTICLES\n");
+                        if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
+                            send_error("No article ids given", c->pollfd.fd);
+                            json_object_put(json_req);
+                            continue;
+                        }
+
+                        char query[BUFFER_SIZE] = {0};
+                        strcpy(query, "SELECT file_path FROM articles WHERE id IN (");
+
+                        int num_ids;
+                        if ((num_ids = format_ids(json_obj, query)) < 0) {
+                            send_error("ids must be given as a JSON array", c->pollfd.fd);
+                            json_object_put(json_req);
+                            continue;
+                        }
+
+                        strcat(query, ");");
+
+                        json_object_put(json_req);
+                        execute_query_and_send(db, query, c->pollfd.fd, num_ids);
+
                     } else {
                         if(is_query_read_only(db, buffer) && (c->creds.gid != sudo_grp->gr_gid)) {
-                            execute_query_and_send(db, buffer, c->pollfd.fd);
+                            execute_query_and_send(db, buffer, c->pollfd.fd, 0);
                         } else {
                             char *error_msg = "Invalid credentials for database modification";
                             send_error(error_msg, c->pollfd.fd);
@@ -352,7 +432,7 @@ void server(){
 			    }   
             }
         }
-   }
+    }
 }
 
 int main(){

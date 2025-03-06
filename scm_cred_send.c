@@ -161,7 +161,11 @@
         //const char *query = "SELECT * FROM users";
 
         struct json_object *json_obj = json_object_new_object();
-        json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLES"));
+        json_object_object_add(json_obj, "action", json_object_new_string("GET_ARTICLE"));
+
+        json_object *ids = json_object_new_array();
+        json_object_array_add(ids, json_object_new_int(1)); 
+        json_object_object_add(json_obj, "ids", ids);
 
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
@@ -189,7 +193,7 @@
         printf("Received file descriptor: %d\n", received_fd);
 
         ssize_t bytes_read;
-        char buffer[1024];
+        char buffer[BUFFER_SIZE];
             
         printf("printing results\n");   
         while((bytes_read = read(received_fd, buffer, sizeof(buffer))) > 0) {
