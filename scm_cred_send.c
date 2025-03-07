@@ -286,18 +286,6 @@
             return -1;  // Return -1 if writing fails
         }
 
-        // Receive the server's response
-        int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
-
-        if (fds != NULL) {
-            // If fds are returned, it indicates an error from the server, so we return the fd to error.txt
-            int error_fd = fds[0];  // Assuming the server sends a single FD for error
-            close(sfd);
-            return error_fd;
-        }
-
-        // If no fds were received (NULL), it indicates success
-        close(sfd);
         return 0;
     }
 
@@ -435,4 +423,3 @@
 
         return receive_json(sfd);
     }
-

@@ -159,8 +159,9 @@ int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
     query_context_t *ctx = (query_context_t *)context;  
     
     for (int i = 0; i < argc; i++) {
-        printf("%s", argv[i]);
+        printf("%s\n", argv[i]);
         ctx->article_fds[i] = open(argv[i], O_RDONLY);
+
         if (ctx->article_fds[i] == -1){
             errExit("invalid file path in database: %s", argv[i]);
         }
@@ -175,7 +176,6 @@ int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
 int cb_send_json(void *json_array, int argc, char **argv, char **azColName) {
     struct json_object *json_arr = (struct json_object *)json_array;
     struct json_object *article = json_object_new_object();
-    printf("here");
     for (int i = 0; i < argc; i++) {    
         json_object_object_add(article, azColName[i], json_object_new_string(argv[i]));
     }   
@@ -242,6 +242,9 @@ void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd) {
         send_error(error_msg, client_fd);
         sqlite3_free(zErrMsg);
     }
+
+
+
 
     send_files_server(context);
     free(context);                      
@@ -426,9 +429,10 @@ int process_client_request(Client *c) {
                     send_json(reply, c->pollfd.fd);
                     json_object_put(json_reply); // Free memory
                 }
-            } else if (strcmp(request, "DELETE_ARTICLE") == 0){
+        } else if (strcmp(request, "DELETE_ARTICLE") == 0){
 
                 // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
+
                   printf("DELETE_ARTICLE");
       
                   // Ensure "ids" is present in the JSON request
