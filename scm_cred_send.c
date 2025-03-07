@@ -71,8 +71,8 @@
         creds.uid = getuid();
         creds.gid = getgid();
 
-        printf("Send credentials pid=%ld, uid=%ld, gid=%ld\n",
-                (long) creds.pid, (long) creds.uid, (long) creds.gid);
+        // printf("Send credentials pid=%ld, uid=%ld, gid=%ld\n",
+                //(long) creds.pid, (long) creds.uid, (long) creds.gid);
 
         /* Copy 'ucred' structure into data field in the 'cmsghdr' */
 
@@ -92,11 +92,11 @@
 
         ssize_t ns = sendmsg(sfd, &msgh, 0);
         if (ns == -1){
-            printf("this is the error");
+            // printf("this is the error");
             errExit("sendmsg");
         }
 
-        printf("sendmsg() returned %zd\n", ns);
+        // printf("sendmsg() returned %zd\n", ns);
 
         /* Only send credentials once   */
 
@@ -162,7 +162,7 @@
         memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
 
         if(cmsgp->cmsg_type == SCM_RIGHTS){
-        printf("its the msg_control!\n");    
+        // printf("its the msg_control!\n");    
         }
 
         ssize_t ns = sendmsg(sfd, &msgh, 0);
@@ -171,7 +171,7 @@
             return -1;
         }
 
-        printf("sendmsg() returned %zd\n", ns);
+        // printf("sendmsg() returned %zd\n", ns);
         return 0;
 
     }
@@ -251,7 +251,7 @@
 
         int *fds = receive_fds(sfd, num_ids);
         for(int i = 0; i < *num_ids; i++){
-            printf("%d", fds[i]);
+            // printf("%d", fds[i]);
         }
         return fds;
     }
@@ -357,7 +357,7 @@
     
         if (bytes_received > 0) {
             buffer[bytes_received] = '\0';
-            printf("%s\n", buffer);
+            //printf("%s\n", buffer);
         }
     
         // Clean up
@@ -379,7 +379,7 @@
             perror("recv failed");
             return NULL;
         } else if (bytes_received == 0) {
-            printf("Connection closed by server.\n");
+            // printf("Connection closed by server.\n");
             return NULL;
         }
     
@@ -389,7 +389,7 @@
         // Now, parse the JSON
         struct json_object *parsed_json = json_tokener_parse(buffer);
         if (!parsed_json) {
-            printf("Failed to parse JSON.\n");
+            fprintf(stderr,"Failed to parse JSON.\n");
             return NULL;
         }
     

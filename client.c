@@ -29,7 +29,7 @@ int main() {
     }
     close(fds[0]);
     // give time for other clients to exist
-    sleep(10);
+    // sleep(10);
 
     close_connection(sfd);
 }

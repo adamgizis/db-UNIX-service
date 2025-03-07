@@ -101,7 +101,7 @@ int send_files_server(query_context_t *context){
 
     // see code above function
     for(int i = 0; i < 2; i++){
-        printf("%d", context->article_fds[i]);
+        // printf("%d", context->article_fds[i]);
     }
     memcpy(CMSG_DATA(cmsgp), context->article_fds, fdAllocSize);
 
@@ -112,7 +112,7 @@ int send_files_server(query_context_t *context){
         return -1;
     }
 
-    printf("sendmsg() returned %zd\n", ns);
+    // printf("sendmsg() returned %zd\n", ns);
     return 0;
 
 }
@@ -143,7 +143,7 @@ int send_error(const char *error_msg, int client_fd) {
     json_object_object_add(json_err, "success", json_object_new_boolean(0));
     json_object_object_add(json_err, "message", json_object_new_string(error_msg));
     const char *err = json_object_to_json_string_ext(json_err, JSON_C_TO_STRING_PLAIN);
-    printf("%s\n", err);
+    // printf("%s\n", err);
 
     json_object_put(json_err);
 
@@ -154,12 +154,12 @@ int send_error(const char *error_msg, int client_fd) {
 
 
 int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
-    printf("cb_send_fds\n");
+    // printf("cb_send_fds\n");
     (void)azColName;
     query_context_t *ctx = (query_context_t *)context;  
     
     for (int i = 0; i < argc; i++) {
-        printf("%s\n", argv[i]);
+        // printf("%s\n", argv[i]);
         ctx->article_fds[i] = open(argv[i], O_RDONLY);
 
         if (ctx->article_fds[i] == -1){
@@ -212,7 +212,7 @@ void execute_query_and_send_json(sqlite3 *db, const char *query, int client_fd) 
     json_object *json_array = json_object_new_array();
     json_object_object_add(json_message, "articles", json_array);
 
-    printf("in send json\n");
+    // printf("in send json\n");
         
     if (sqlite3_exec(db, query, cb_send_json, json_array, &zErrMsg) != SQLITE_OK) {
         char error_msg[512];
@@ -314,7 +314,7 @@ int process_client_request(Client *c) {
         const char *request = json_object_get_string(json_obj);                                       
 
         if (strcmp(request, "LIST_ARTICLES") == 0) {
-            printf("LIST_ARTICLES\n");
+            // printf("LIST_ARTICLES\n");
             json_object_put(json_req);
             const char *query = "SELECT articles.id, title, username "
                                            "FROM articles INNER JOIN users "
@@ -324,7 +324,7 @@ int process_client_request(Client *c) {
             execute_query_and_send_json(db, query, c->pollfd.fd);
 
         } else if (strcmp(request, "GET_ARTICLE") == 0) {
-            printf("GET_ARTICLES\n");
+            // printf("GET_ARTICLES\n");
             if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
                 send_error("No article ids given", c->pollfd.fd);
                 json_object_put(json_req);
@@ -342,13 +342,13 @@ int process_client_request(Client *c) {
             }
 
             strcat(query, ");");
-            printf("%s", query);
+            // printf("%s", query);
 
             json_object_put(json_req);
             execute_query_and_send_fds(db, query, c->pollfd.fd);
 
         } else if (strcmp(request, "UPLOAD_ARTICLES") == 0){
-            printf("UPLOAD_ARTICLES\n");
+            // printf("UPLOAD_ARTICLES\n");
             #define SQL_INSERT "INSERT INTO articles (title, file_path, author_id, is_published) VALUES (?, ?, ?, 1);"
 
                 int num_fds;
@@ -371,7 +371,7 @@ int process_client_request(Client *c) {
                 }
                 json_object_object_foreach(file_mapping, key, val) {
                     int src_fd = fds[0];
-                    printf("%d", src_fd);
+                    // printf("%d", src_fd);
                     const char *filename = json_object_get_string(val);
 
 
@@ -433,7 +433,7 @@ int process_client_request(Client *c) {
 
                 // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
 
-                  printf("DELETE_ARTICLE");
+                  // printf("DELETE_ARTICLE");
       
                   // Ensure "ids" is present in the JSON request
                   if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
@@ -537,7 +537,7 @@ void server(){
     num_clients++;
 
 
-    printf("starting polling...\n");
+    // printf("starting polling...\n");
 
     // Polling loop
     for (;;) {
@@ -578,7 +578,7 @@ void server(){
                 if (nr == -1)
                     errExit("recvmsg");
 
-                printf("recvmsg() returned %zd, received data = %d\n", nr, c->data);
+                // printf("recvmsg() returned %zd, received data = %d\n", nr, c->data);
 
                 struct cmsghdr *cmsgp = CMSG_FIRSTHDR(&c->msgh);
                 if (!cmsgp || cmsgp->cmsg_len != CMSG_LEN(sizeof(struct ucred)) ||
@@ -588,15 +588,15 @@ void server(){
                 struct ucred rcred;
 
                 memcpy(&rcred, CMSG_DATA(cmsgp), sizeof(struct ucred));
-                printf("Received credentials: pid=%ld, uid=%ld, gid=%ld\n",
-                        (long)rcred.pid, (long)rcred.uid, (long)rcred.gid);
+                // printf("Received credentials: pid=%ld, uid=%ld, gid=%ld\n",
+                        // (long)rcred.pid, (long)rcred.uid, (long)rcred.gid);
 
                 socklen_t len = sizeof(struct ucred);
                 if (getsockopt(new_client, SOL_SOCKET, SO_PEERCRED, &c->creds, &len) == -1)
                     errExit("getsockopt");
 
-                printf("Credentials from SO_PEERCRED: pid=%ld, uid=%ld, gid=%ld\n",
-                    (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
+                // printf("Credentials from SO_PEERCRED: pid=%ld, uid=%ld, gid=%ld\n",
+                    // (long)c->creds.pid, (long)c->creds.uid, (long)c->creds.gid);
 
                 num_clients++;
 

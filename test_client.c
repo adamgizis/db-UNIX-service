@@ -72,6 +72,7 @@ void upload_file_then_delete() {
         // Get the number of articles in the array
         pre_num_articles = json_object_array_length(articles_array);
     }
+
     json_object_put(json_obj);
 
     const char *filepath = "test.txt";  // Replace with a valid file path
