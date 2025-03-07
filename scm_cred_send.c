@@ -301,6 +301,84 @@
         return 0;
     }
 
+    int upload_article(int sfd, const char* filepath, const char* title) {
+        struct json_object *json_obj = json_object_new_object();
+        if (!json_obj) {
+            fprintf(stderr, "Failed to allocate JSON object\n");
+            return -1;
+        }
+        
+        json_object_object_add(json_obj, "action", json_object_new_string("UPLOAD_ARTICLES"));
+    
+        struct json_object *json_mapping = json_object_new_object();
+        if (!json_mapping) {
+            fprintf(stderr, "Failed to allocate JSON mapping object\n");
+            json_object_put(json_obj);
+            return -1;
+        }
+        json_object_object_add(json_obj, "file_mapping", json_mapping);
+    
+        int fd = open(filepath, O_RDWR);
+        if (fd < 0) {
+            perror("open");
+            json_object_put(json_obj);
+            close(sfd);
+            return -1;
+        }
+    
+        char file_descriptor[12]; // Increased size to safely hold int as string
+        snprintf(file_descriptor, sizeof(file_descriptor), "%d", fd);
+    
+        json_object_object_add(json_mapping, file_descriptor, json_object_new_string(title));
+    
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+    
+        struct iovec iov;
+        struct msghdr msgh;
+        char buffer[1024]; // Ensure buffer is large enough
+    
+        memset(&iov, 0, sizeof(iov));
+        memset(&msgh, 0, sizeof(msgh));
+    
+        iov.iov_base = (void *)request;
+        iov.iov_len = strlen(request) + 1;
+    
+        msgh.msg_iov = &iov;
+        msgh.msg_iovlen = 1;
+        msgh.msg_control = NULL;
+        msgh.msg_controllen = 0;
+    
+        int bytes_sent = send_files(sfd, &fd, 1, request);
+        if (bytes_sent == -1) {
+            perror("sendmsg");
+            close(fd);
+            json_object_put(json_obj);
+            return -1;
+        }
+    
+        iov.iov_base = buffer;
+        iov.iov_len = sizeof(buffer);
+    
+        int bytes_received = recvmsg(sfd, &msgh, 0);
+        if (bytes_received == -1) {
+            perror("recvmsg");
+            close(fd);
+            json_object_put(json_obj);
+            return -1;
+        }
+    
+        if (bytes_received > 0) {
+            buffer[bytes_received] = '\0';
+            printf("%s\n", buffer);
+        }
+    
+        // Clean up
+        // close(fd);
+        json_object_put(json_obj);
+    
+        return 0;
+    }
+
 // // return 0 on success -1 on failure
 // int upload_articles(int sfd, int* ids, int ){
 

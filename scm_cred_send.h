@@ -10,5 +10,6 @@ int send_files(int sfd, int* fdList, int fdCnt, const char* json_string);
 int* receive_fds(int socket, int *num_fds);
 int* get_articles(int sfd, int* ids, int* num_ids);
 int delete_articles(int sfd, int* ids, int* num_ids);
+int upload_article(int sfd, const char* filepath, const char* title);
 
 #endif /* CLIENT_H */
