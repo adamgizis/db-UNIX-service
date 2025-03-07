@@ -23,15 +23,24 @@ make all
 ./server
 
 ## Usage
-The client can interact with the server using the following api. 
+The client can interact with the server using the following api. :
 
-#import scm_cred_send.h
+'''
+#import "scm_cred_send.h"
 int client_connect(void); - returns an fd to connect to the database server
 int close_connection(int sfd); - closes connection to database server
 int* get_articles(int sfd, int* ids, int* num_ids); - Take in an input array of article ids returns a list of file descriptors where the files are open
 int delete_articles(int sfd, int* ids, int* num_ids); - Deletes the listed ids from the database if user has proper previleges
 int upload_article(int sfd, const char* filepath, const char* title); - Takes in a single filepath and uploads file to the database
 struct json_object * list_articles(int sfd); - returns a json_object with the author, id, and title of every article in the database
+'''
+
+The server is started by 
+'''
+import "scm_cred_send.h"
+
+server();
+'''
 
 ## Example Test Files
 
@@ -42,4 +51,4 @@ Laith handled the json operations and sending the passing file descriptors both 
 
 ## Attributions 
 
-Lots of code taken from , The Linux Programming Interface
+Lots of code taken from , The Linux Programming Interface. Work was done a cloud lab node. Git commits done
