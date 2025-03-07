@@ -3,10 +3,19 @@
 int main() {
     int sfd = client_connect();
     
-    struct json_object* articles = list_articles(sfd);
+     // Parse the JSON string into a JSON object
+    struct json_object *json_obj = list_articles(sfd);
 
-    // Print JSON as a string
-    printf("JSON Output: %s\n", json_object_to_json_string(articles));
+     // Get the "articles" array from the JSON object
+     int num_articles = 0 ;
+     struct json_object *articles_array = NULL;
+     if (json_object_object_get_ex(json_obj, "articles", &articles_array)) {
+         // Get the number of articles in the array
+         num_articles = json_object_array_length(articles_array);
+         printf("Number of articles: %d\n", num_articles);
+     } else {
+         printf("No articles found in JSON.\n");
+     }
 
 
     int ids[] = {1};  
