@@ -98,7 +98,7 @@
 
         printf("sendmsg() returned %zd\n", ns);
 
-        /* Only send credentials once   */
+        /* Only send credentials once  */
 
         msgh.msg_control = NULL;
         msgh.msg_controllen = 0;
@@ -286,6 +286,21 @@
             return -1;  // Return -1 if writing fails
         }
 
+        // Receive the server's response
+        struct json_object *json_response = receive_json(sfd); //
+        struct json_object *json_success;
+        json_object_object_get_ex(json_response, "success", json_success);
+        
+        json_bool success_bool = json_object_get_boolean(json_success);
+
+        if(!success_bool){
+            struct json_object *json_error;
+            json_object_object_get_ex(json_response, "message", json_error);
+            return -1;
+        }
+
+        // If no fds were received (NULL), it indicates success
+        close(sfd);
         return 0;
     }
 

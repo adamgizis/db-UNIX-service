@@ -60,9 +60,6 @@ int send_files_server(query_context_t *context){
         return -1;
     }
 
-    
-
-
     memset(controlMsg, 0, controlMsgSize);
     
     struct msghdr msgh;
