@@ -7,3 +7,11 @@ gcc scm_cred_recv.c unix_sockets.c error_functions.c -o scm_cred_recv
 
 gcc scm_cred_send.c unix_sockets.c error_functions.c -o scm_cred_send
 ./scm_cred_send
+-sudo apt-get install libsqlite3-dev 
+- sudo apt install sqlite3
+
+### TODO
+Send multiple fds - Adam
+client sends multiple- Adam 
+Command Line Workflow/ parsing - Laith
+Policy - Laith
