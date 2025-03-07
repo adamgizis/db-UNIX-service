@@ -379,8 +379,58 @@
         return 0;
     }
 
-// // return 0 on success -1 on failure
-// int upload_articles(int sfd, int* ids, int ){
+    // Function to receive JSON message over the socket and return a json_object
+    struct json_object *receive_json(int sfd) {
+        // Prepare to receive the message
+        struct msghdr msgh;
+        memset(&msgh, 0, sizeof(msgh));
+
+        struct iovec iov;
+        char buffer[4096];  // Adjust size as needed for the expected message
+        iov.iov_base = buffer;
+        iov.iov_len = sizeof(buffer);
+
+        msgh.msg_iov = &iov;
+        msgh.msg_iovlen = 1;
+        msgh.msg_name = NULL;
+        msgh.msg_namelen = 0;
+        msgh.msg_control = NULL;
+        msgh.msg_controllen = 0;
+
+        // Receive the message
+        ssize_t ns = recvmsg(sfd, &msgh, 0);
+        
+        int bytes_read;
+        if ((bytes_read = recvmsg(sfd, &msgh, 0)) == -1) {
+            perror("recvmsg");
+            return NULL;
+        }
+    
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';
+            printf("%s\n", buffer);     
+        }
 
 
-// }
+        return NULL;  // Return the parsed json object
+    }
+    
+    struct json_object* list_articles(int sfd){
+        if(sfd < 0 ){
+            return NULL;
+        }
+
+        struct json_object *json_obj = json_object_new_object();
+        json_object_object_add(json_obj, "action", json_object_new_string("LIST_ARTICLES"));
+
+        const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+
+
+        if (write(sfd, request, strlen(request)) == -1) {
+            perror("write");
+            close(sfd);
+            exit(EXIT_FAILURE);
+            return NULL;
+        }
+        return receive_json(sfd);
+    }
