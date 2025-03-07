@@ -1,25 +1,30 @@
-#include<scm_cred_send.h>
-#include<scm_cred_recv.h>
+#include "scm_cred_send.h"
 
 int main() {
 
     int pid;
-    for(int i = 0; i < MAX_FDS; i++){
+    for(int i = 0; i < MAX_FDS - 1; i++){   
         pid = fork();
         if(!pid){
-            execvp("./client", NULL);
-        }
+            char* argument_list[] = {"./client", NULL};
+            if(execvp(argument_list[0], argument_list) < 0){
+                printf("I'm erroring\n");
+            }
+        }   
+
     }
+
+    printf("parent reached end of loop\n");
 
     int sfd = client_connect();
 
-    char buffer[] = "this won't reach";
+    sleep(5);  
 
-    if (write(sfd, buffer, sizeof(buffer)) > 0) {
+    if (fcntl(sfd, F_GETFD) > 0) {
         printf("TEST FAILED\n");
     }
     else {
-        pritnf("TEST SUCCESS\n");   
+        printf("TEST SUCCESS\n");   
     }
 
 }

@@ -287,16 +287,13 @@
         }
 
         // Receive the server's response
-        struct json_object *json_response = receive_json(sfd); //
-        struct json_object *json_success;
-        json_object_object_get_ex(json_response, "success", json_success);
-        
-        json_bool success_bool = json_object_get_boolean(json_success);
+        int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
 
-        if(!success_bool){
-            struct json_object *json_error;
-            json_object_object_get_ex(json_response, "message", json_error);
-            return -1;
+        if (fds != NULL) {
+            // If fds are returned, it indicates an error from the server, so we return the fd to error.txt
+            int error_fd = fds[0];  // Assuming the server sends a single FD for error
+            close(sfd);
+            return error_fd;
         }
 
         // If no fds were received (NULL), it indicates success

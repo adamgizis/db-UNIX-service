@@ -141,14 +141,14 @@ void upload_file_then_delete() {
 
                         } else {
                             // Failure
-                            printf("FAILURE")
+                            printf("FAILURE");
                         }
                     }
                 }
             }
         }
     }
-    close_connection(int sfd);
+    close_connection(sfd);
     return;
 }
 
