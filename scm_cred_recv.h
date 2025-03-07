@@ -20,11 +20,11 @@ typedef struct {
 
 
 int* extract_fds(struct msghdr *msgh, int *num_fds);
-int send_files(query_context_t *context);
+int send_files_server(query_context_t *context);
 void send_json(const char *message, int client_fd);
-static int send_error(const char *error_msg, int client_fd);
-static int cb_send_fds(void *context, int argc, char **argv, char **azColName);
-static int cb_send_json(void *json_array, int argc, char **argv, char **azColName);
+int send_error(const char *error_msg, int client_fd);
+int cb_send_fds(void *context, int argc, char **argv, char **azColName);
+int cb_send_json(void *json_array, int argc, char **argv, char **azColName);
 int format_ids(struct json_object *array, char *query);
 void execute_query_and_send_json(sqlite3 *db, const char *query, int client_fd);
 void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd);
