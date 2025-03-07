@@ -42,9 +42,7 @@ int* extract_fds(struct msghdr *msgh, int *num_fds) {
     return fds;  // Caller is responsible for freeing this
 }
 
-int send_files(query_context_t *context){
-
-    printf("send files\n");
+int send_files_server(query_context_t *context){
     
     // depends how you want to handle this
     if(context->num_fds == 0){
@@ -61,6 +59,8 @@ int send_files(query_context_t *context){
         errExit("malloc");
         return -1;
     }
+
+    
 
 
     memset(controlMsg, 0, controlMsgSize);
@@ -100,6 +100,9 @@ int send_files(query_context_t *context){
 
 
     // see code above function
+    for(int i = 0; i < 2; i++){
+        printf("%d", context->article_fds[i]);
+    }
     memcpy(CMSG_DATA(cmsgp), context->article_fds, fdAllocSize);
 
     ssize_t ns = sendmsg(context->client_socket, &msgh, 0);
@@ -135,7 +138,7 @@ void send_json(const char *message, int client_fd){
         errExit("sendmsg");
 }
 
-static int send_error(const char *error_msg, int client_fd) {
+int send_error(const char *error_msg, int client_fd) {
     struct json_object *json_err = json_object_new_object();
     json_object_object_add(json_err, "success", json_object_new_boolean(0));
     json_object_object_add(json_err, "message", json_object_new_string(error_msg));
@@ -150,12 +153,13 @@ static int send_error(const char *error_msg, int client_fd) {
 }
 
 
-static int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
+int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
     printf("cb_send_fds\n");
     (void)azColName;
     query_context_t *ctx = (query_context_t *)context;  
     
     for (int i = 0; i < argc; i++) {
+        printf("%s", argv[i]);
         ctx->article_fds[i] = open(argv[i], O_RDONLY);
         if (ctx->article_fds[i] == -1){
             errExit("invalid file path in database: %s", argv[i]);
@@ -168,12 +172,11 @@ static int cb_send_fds(void *context, int argc, char **argv, char **azColName) {
 }
 
 
-static int cb_send_json(void *json_array, int argc, char **argv, char **azColName) {
-    printf("cb_send_results_multiple: %d results\n", argc);
+int cb_send_json(void *json_array, int argc, char **argv, char **azColName) {
     struct json_object *json_arr = (struct json_object *)json_array;
     struct json_object *article = json_object_new_object();
-    
-    for (int i = 0; i < argc; i++) {
+    printf("here");
+    for (int i = 0; i < argc; i++) {    
         json_object_object_add(article, azColName[i], json_object_new_string(argv[i]));
     }   
 
@@ -198,7 +201,6 @@ int format_ids(struct json_object *array, char *query) {
 
         strcat(query, buffer);
     }
-
     return num_ids;
 }
 
@@ -210,6 +212,8 @@ void execute_query_and_send_json(sqlite3 *db, const char *query, int client_fd) 
     json_object *json_array = json_object_new_array();
     json_object_object_add(json_message, "articles", json_array);
 
+    printf("in send json\n");
+        
     if (sqlite3_exec(db, query, cb_send_json, json_array, &zErrMsg) != SQLITE_OK) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
@@ -239,7 +243,7 @@ void execute_query_and_send_fds(sqlite3 *db, const char *query, int client_fd) {
         sqlite3_free(zErrMsg);
     }
 
-    send_files(context);
+    send_files_server(context);
     free(context);                      
 }
 
@@ -306,7 +310,7 @@ int process_client_request(Client *c) {
         
         const char *request = json_object_get_string(json_obj);                                       
 
-        if (strcmp(request, "// perror_ARTICLES") == 0) {
+        if (strcmp(request, "LIST_ARTICLES") == 0) {
             printf("LIST_ARTICLES\n");
             json_object_put(json_req);
             const char *query = "SELECT articles.id, title, username "
@@ -335,6 +339,7 @@ int process_client_request(Client *c) {
             }
 
             strcat(query, ");");
+            printf("%s", query);
 
             json_object_put(json_req);
             execute_query_and_send_fds(db, query, c->pollfd.fd);

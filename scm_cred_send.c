@@ -177,8 +177,6 @@
     }
 
 
-
-
     int* receive_fds(int socket, int *num_fds) {
         struct msghdr msgh;
         struct iovec iov;
@@ -242,9 +240,8 @@
             json_object_array_add(ids_json, json_object_new_int(ids[i])); 
         }                         
         json_object_object_add(json_obj, "ids", ids_json);
-
+        
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
-
         if (write(sfd, request, strlen(request)) == -1) {
             perror("write");
             close(sfd);
@@ -253,6 +250,9 @@
         }
 
         int *fds = receive_fds(sfd, num_ids);
+        for(int i = 0; i < *num_ids; i++){
+            printf("%d", fds[i]);
+        }
         return fds;
     }
 
@@ -380,39 +380,36 @@
     }
 
     // Function to receive JSON message over the socket and return a json_object
-    struct json_object *receive_json(int sfd) {
-        // Prepare to receive the message
-        struct msghdr msgh;
-        memset(&msgh, 0, sizeof(msgh));
-
-        struct iovec iov;
-        char buffer[4096];  // Adjust size as needed for the expected message
-        iov.iov_base = buffer;
-        iov.iov_len = sizeof(buffer);
-
-        msgh.msg_iov = &iov;
-        msgh.msg_iovlen = 1;
-        msgh.msg_name = NULL;
-        msgh.msg_namelen = 0;
-        msgh.msg_control = NULL;
-        msgh.msg_controllen = 0;
-
-        // Receive the message
-        ssize_t ns = recvmsg(sfd, &msgh, 0);
+    struct json_object* receive_json(int sfd) {
+        char buffer[BUFFER_SIZE];
+        ssize_t bytes_received;
+    
+        // Read the message from the socket
+        bytes_received = recv(sfd, buffer, sizeof(buffer) - 1, 0);
         
-        int bytes_read;
-        if ((bytes_read = recvmsg(sfd, &msgh, 0)) == -1) {
-            perror("recvmsg");
+        if (bytes_received < 0) {
+            perror("recv failed");
+            return NULL;
+        } else if (bytes_received == 0) {
+            printf("Connection closed by server.\n");
             return NULL;
         }
     
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            printf("%s\n", buffer);     
+        buffer[bytes_received] = '\0';  // Null-terminate the received data
+        //printf("Received JSON: %s\n", buffer);
+    
+        // Now, parse the JSON
+        struct json_object *parsed_json = json_tokener_parse(buffer);
+        if (!parsed_json) {
+            printf("Failed to parse JSON.\n");
+            return NULL;
         }
-
-
-        return NULL;  // Return the parsed json object
+    
+        // Pretty-print the JSON
+        //printf("Parsed JSON: %s\n", json_object_to_json_string_ext(parsed_json, JSON_C_TO_STRING_PRETTY));
+    
+        
+        return parsed_json;
     }
     
     struct json_object* list_articles(int sfd){
@@ -423,6 +420,7 @@
         struct json_object *json_obj = json_object_new_object();
         json_object_object_add(json_obj, "action", json_object_new_string("LIST_ARTICLES"));
 
+
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
 
@@ -432,5 +430,9 @@
             exit(EXIT_FAILURE);
             return NULL;
         }
+
+        json_object_put(json_obj);
+
         return receive_json(sfd);
     }
+
