@@ -10,14 +10,11 @@ CLIENT_CFILES=client.c scm_cred_send.c unix_sockets.c error_functions.c
 SERVER_OBJECTS=server.o scm_cred_recv.o unix_sockets.o error_functions.o
 CLIENT_OBJECTS=client.o scm_cred_send.o unix_sockets.o error_functions.o
 
-TEST_CFILES=test_max_clients.c scm_cred_send.c scm_cred_recv.c unix_sockets.c error_functions.c
-TEST_OBJECTS=test_max_clients.o scm_cred_recv.o scm_cred_send.o unix_sockets.o error_functions.o
-
-ERROR_CFILES=test_client.c scm_cred_send.c scm_cred_recv.c unix_sockets.c error_functions.c
-ERROR_OBJECTS=test_client.o scm_cred_recv.o scm_cred_send.o unix_sockets.o error_functions.o
+TEST_CFILES=test_client.c scm_cred_send.c scm_cred_recv.c unix_sockets.c error_functions.c
+TEST_OBJECTS=test_client.o scm_cred_recv.o scm_cred_send.o unix_sockets.o error_functions.o
 
 
-BINARY=server client client_max client_error
+BINARY=server client client_test
 
 all: $(BINARY)
 
@@ -26,11 +23,8 @@ server: $(SERVER_OBJECTS)
 		
 client: $(CLIENT_OBJECTS)
 		$(CC) -o $@ $^ -lsqlite3 -ljson-c
-
-client_max: $(TEST_OBJECTS)
-		$(CC) -o $@ $^ -lsqlite3 -ljson-c
-
-client_error: $(ERROR_OBJECTS)
+	
+client_test: $(TEST_OBJECTS)
 		$(CC) -o $@ $^ -lsqlite3 -ljson-c
 
 %.o:%.c

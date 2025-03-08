@@ -14,7 +14,7 @@ void get_single_file(){
         for (int i = 0; i < num_ids; ++i) {
             // Check if the FD is valid
             if (fds[i] < 0) {
-                printf("FAILURE\n");
+                printf("GET FILE FAILURE\n");
                 continue;
             }
 
@@ -23,10 +23,10 @@ void get_single_file(){
             ssize_t test_read = read(fds[i], test_buf, 1);
             if (test_read == 0) {
                 close(fds[i]);
-                printf("FAILURE\n");
+                printf("GET FILE FAILURE\n");
                 continue;
             } else if (test_read < 0) {
-                printf("FAILURE\n");
+                printf("GET FILE FAILURE\n");
             } else {
                 // Put back the character if successfully read
                 lseek(fds[i], -1, SEEK_CUR);
@@ -38,18 +38,18 @@ void get_single_file(){
                 // Try to read and print PASS if successful
                 char buffer[1024];
                 if (fgets(buffer, sizeof(buffer), file) != NULL) {
-                    printf("SINGLE FILE PASS\n");
+                    printf("GET FILE PASS\n");
                 } else {
-                    printf("FAILURE\n");
+                    printf("GET FILE FAILURE\n");
                 }
                 fclose(file);
             } else {
-                printf("FAILURE\n");
+                printf("GET FILE FAILURE\n");
             }
         }
         free(fds);
     } else {
-        printf("FAILURE\n");
+        printf("GET FILE FAILURE\n");
     }
     close_connection(sfd);
 
@@ -73,8 +73,6 @@ void upload_file_then_delete() {
         pre_num_articles = json_object_array_length(articles_array);
     }
     json_object_put(json_obj);
-
-    printf("pre_num_articles: %d\n", pre_num_articles);
 
     const char *filepath = "test.txt";  // Replace with a valid file path
     const char *title = "test";
@@ -110,11 +108,8 @@ void upload_file_then_delete() {
         } 
 
         const char *json_array = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
-        printf("%s\n", json_array);
-        printf("prenum:%d  postnum:%d\n", pre_num_articles, post_num_articles);
 
         if ((pre_num_articles + 1) == post_num_articles) {
-            printf("here");
             // Loop through each article in the "articles" array
             for (int i = 0; i < post_num_articles; i++) {
                 struct json_object *article = json_object_array_get_idx(articles_array, i);
@@ -143,11 +138,11 @@ void upload_file_then_delete() {
 
                         if (del_num_articles == pre_num_articles) {
                             // Success
-                            printf("SUCCESS");
+                            printf("UPLOAD AND DELETE SUCCESS\n");
 
                         } else {
                             // Failure
-                            printf("FAILURE");
+                            printf("UPLOAD AND DELETE FAILURE\n");
                         }
                     }
                 }
@@ -184,5 +179,27 @@ void delete_file_not_root(){
 int main(){
     get_single_file();
     upload_file_then_delete();
-        delete_file_not_root(); 
+    delete_file_not_root(); 
+
+    int pid;
+    for(int i = 0; i < MAX_FDS - 1; i++){   
+        pid = fork();
+        if(!pid){
+            char* argument_list[] = {"./client", NULL};
+            if(execvp(argument_list[0], argument_list) < 0){
+            }
+        }   
+
+    }
+
+    int sfd = client_connect();                 
+
+    sleep(2);  
+
+    if (fcntl(sfd, F_GETFD) > 0) {
+        printf("MAX CLIENTS FAILURE\n");
+    }
+    else {
+        printf("MAX CLIENTS SUCCESS\n");   
+    }
 }

@@ -71,9 +71,6 @@
         creds.uid = getuid();
         creds.gid = getgid();
 
-        printf("Send credentials pid=%ld, uid=%ld, gid=%ld\n",
-                (long) creds.pid, (long) creds.uid, (long) creds.gid);
-
         /* Copy 'ucred' structure into data field in the 'cmsghdr' */
 
         memcpy(CMSG_DATA(cmsgp), &creds, sizeof(struct ucred));
@@ -92,11 +89,8 @@
 
         ssize_t ns = sendmsg(sfd, &msgh, 0);
         if (ns == -1){
-            printf("this is the error");
             errExit("sendmsg");
         }
-
-        printf("sendmsg() returned %zd\n", ns);
 
         /* Only send credentials once  */
 
@@ -167,7 +161,6 @@
             return -1;
         }
 
-        printf("sendmsg() returned %zd\n", ns);
         return 0;
 
     }
@@ -246,9 +239,7 @@
         }
 
         int *fds = receive_fds(sfd, num_ids);
-        for(int i = 0; i < *num_ids; i++){
-            printf("%d", fds[i]);
-        }
+
         return fds;
     }
 
@@ -260,7 +251,6 @@
     // returns 0 on success, or an FD to error.txt on server error
     int delete_articles(int sfd, int* ids, int* num_ids) {
         if(sfd < 0) {
-            printf("socket is invalid\n");
             return -1; // Return -1 for invalid socket
         }
 
@@ -276,7 +266,6 @@
 
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
-        printf("about to send delete message\n");
 
         // Send the request to the server
             if (write(sfd, request, strlen(request)) == -1) {
@@ -284,8 +273,6 @@
                 close(sfd);
                 return -1;  // Return -1 if writing fails
             }
-
-        printf("sent delete message\n");
         // Receive the server's response
         // int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
 
@@ -388,7 +375,6 @@
     
         if (bytes_received > 0) {
             buffer[bytes_received] = '\0';
-            printf("%s\n", buffer);
         }
     
         // Clean up
@@ -410,7 +396,6 @@
             perror("recv failed");
             return NULL;
         } else if (bytes_received == 0) {
-            printf("Connection closed by server.\n");
             return NULL;
         }
     
@@ -420,7 +405,6 @@
         // Now, parse the JSON
         struct json_object *parsed_json = json_tokener_parse(buffer);
         if (!parsed_json) {
-            printf("Failed to parse JSON.\n");
             return NULL;
         }
     

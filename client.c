@@ -14,17 +14,17 @@ int main() {
         ssize_t bytes_read = read(fds[0], buffer, sizeof(buffer) - 1);
     
         if (bytes_read == -1) {
-            printf("FAILURE");  // Read error
+            printf("CLIENT READ FAILURE\n");  // Read error
         }
     
         buffer[bytes_read] = '\0';  // Ensure null termination
     
         if (strncmp(buffer, TARGET_STRING, strlen(TARGET_STRING)) == 0) {
-            printf("PASS\n");
+            printf("CLIENT READ SUCCESS\n");
             close(fds[0]);  // Match
         } else {
             close(fds[0]);
-            printf("FAILURE\n");  // No match
+            printf("CLIENT READ FAILURE\n");  // No match
         }
     }
     close(fds[0]);
