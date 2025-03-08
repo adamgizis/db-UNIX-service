@@ -51,4 +51,4 @@ Laith handled the json operations and sending the passing file descriptors both 
 
 ## Attributions 
 
-Lots of code taken from The Linux Programming Interface. Work was done a cloud lab node. Git commits done by aegizis and adamgizis were done by Adam, commits done by unix server he was working on are aegizis.
+Lots of code taken from The Linux Programming Interface. Work was done a cloud lab node. Git commits done by aegizis and adamgizis were done by Adam, commits done by unix server he was working on are aegizis. Commits from LaithGWU are from Laith.

@@ -115,6 +115,7 @@ int send_files_server(query_context_t *context){
 }
 
 void send_json(const char *message, int client_fd){
+    printf("sending to client: %s\n", message); 
     struct msghdr msgh;
     memset(&msgh, 0, sizeof(msgh));
 
@@ -292,7 +293,8 @@ int process_client_request(Client *c) {
         }
 
         if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';      
+            buffer[bytes_read] = '\0';
+        printf("SERVER RECIEVED: %s\n", buffer);    
 
         struct json_object *json_req = json_tokener_parse(buffer);
         if (!json_req) {
@@ -308,15 +310,14 @@ int process_client_request(Client *c) {
             return -1;
         }
         
-        const char *request = json_object_get_string(json_obj);                                       
+        const char *request = json_object_get_string(json_obj); 
+        printf("ACTION=%s\n", request); 
+        printf("%d\n", strcmp(request, "DELETE_ARTICLE"));                                  
 
         if (strcmp(request, "LIST_ARTICLES") == 0) {
             printf("LIST_ARTICLES\n");
             json_object_put(json_req);
-            const char *query = "SELECT articles.id, title, username "
-                                           "FROM articles INNER JOIN users "
-                                           "ON articles.author_id = users.id "
-                                           "WHERE is_published = TRUE;";
+            const char *query = "SELECT articles.id, title FROM articles;";
         
             execute_query_and_send_json(db, query, c->pollfd.fd);
 
@@ -346,91 +347,72 @@ int process_client_request(Client *c) {
 
         } else if (strcmp(request, "UPLOAD_ARTICLES") == 0){
             printf("UPLOAD_ARTICLES\n");
-            #define SQL_INSERT "INSERT INTO articles (title, file_path, author_id, is_published) VALUES (?, ?, ?, 1);"
+            int num_fds;
+            int *fds;
+            fds = extract_fds(&msgh, &num_fds);
+            if(!fds){
+                return -1;
+            }
 
-                int num_fds;
-                int *fds = extract_fds(&msgh, &num_fds);
+            struct json_object *file_mapping;
+            if (!json_object_object_get_ex(json_req, "file_mapping", &file_mapping)) {
+                fprintf(stderr, "\"file_mapping\" not found in JSON\n");
+                return -1;
+            }
+            
+            json_object_object_foreach(file_mapping, key, val) {
+                int src_fd = fds[0];
+                const char *filename = json_object_get_string(val);
 
+                printf("File descriptor: %d, Filename: %s\n", src_fd, filename);
 
-                if (fds == NULL){
-                    send_error("no file descriptor sent", c->pollfd.fd);
-                    return -1;
-                }
+                char file_path[BUFFER_SIZE];
+                snprintf(file_path, sizeof(file_path), "%s%s.md", WIKI_PATH, filename);
 
-                // Iterate over all file descriptors and try reading from each 
-                // single fd
-    
-                struct json_object *file_mapping;
-                if (!json_object_object_get_ex(json_req, "file_mapping", &file_mapping)) {
-                    send_error( "\"file_mapping\" not found in JSON\n", c->pollfd.fd);
-                    json_object_put(file_mapping);
-                    return -1;
-                }
-                json_object_object_foreach(file_mapping, key, val) {
-                    int src_fd = fds[0];
-                    printf("%d", src_fd);
-                    const char *filename = json_object_get_string(val);
-
-
-                    char file_path[BUFFER_SIZE];
-                    snprintf(file_path, sizeof(file_path), "%s%s.txt", WIKI_PATH, filename);
-
-                    int wiki_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    if (wiki_fd < 0) {
-                        close(src_fd);
-                        send_error("invalid filename", c->pollfd.fd);
-                        continue;
-                    }
-
-                    int num_bytes;
-                    char buffer[BUFFER_SIZE];
-                    while ((num_bytes = read(src_fd, buffer, sizeof(buffer))) > 0) {
-                        if (write(wiki_fd, buffer, num_bytes) == -1) {
-                            send_error("failed writing to file", c->pollfd.fd);
-                            close(src_fd);
-                            close(wiki_fd);
-                            return -1;
-                        }
-                    }
-                    if (num_bytes == -1) {
-                        send_error("failed reading file descriptor", c->pollfd.fd);
-                        close(src_fd);
-                        close(wiki_fd);
-                        return -1;
-                    }
-
+                int wiki_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if(wiki_fd < 0){
                     close(src_fd);
-                    close(wiki_fd);
+                    send_error("invalid filename", c->pollfd.fd);
+                }
 
-                    sqlite3_stmt *stmt;
-                    if (sqlite3_prepare_v2(db, SQL_INSERT, -1, &stmt, NULL) != SQLITE_OK) {
-                        send_error("Failed to prepare SQL statement", c->pollfd.fd);
+                int num_bytes;
+                char buffer[BUFFER_SIZE];
+                while((num_bytes = read(src_fd, buffer, sizeof(buffer))) > 0){
+                    if((num_bytes = write(wiki_fd, buffer, sizeof(buffer))) == -1){
+                        send_error("failed opening file descriptor", c->pollfd.fd);
                         return -1;
                     }
-
-                    sqlite3_bind_text(stmt, 1, filename, -1, SQLITE_STATIC);
-                    sqlite3_bind_text(stmt, 2, file_path, -1, SQLITE_STATIC);
-                    sqlite3_bind_int(stmt, 3, c->creds.uid);
-
-                    if (sqlite3_step(stmt) != SQLITE_DONE) {
-                        send_error("Failed to execute SQL statement", c->pollfd.fd);
-                    }
-
-                    sqlite3_finalize(stmt); // Clean up statement
-
-                    // **Send JSON Response**
-                    struct json_object *json_reply = json_object_new_object();
-                    json_object_object_add(json_reply, "success", json_object_new_boolean(1));
-                    const char *reply = json_object_to_json_string_ext(json_reply, JSON_C_TO_STRING_PLAIN);
-                    
-                    send_json(reply, c->pollfd.fd);
-                    json_object_put(json_reply); // Free memory
+                } if (num_bytes == -1) {
+                    send_error("failed opening file descriptor", c->pollfd.fd);
+                    return -1;
                 }
+
+                close(src_fd);
+                close(wiki_fd);
+
+                char query[BUFFER_SIZE * 2];    
+                snprintf(query, sizeof(query), "INSERT INTO articles (title, file_path, author_id, is_published) VALUES ('%s','%s',%d,1);", json_object_get_string(val), file_path, c->creds.uid);
+                                                   
+                char *zErrMsg = NULL;
+                if(sqlite3_exec(db, query, NULL, NULL, &zErrMsg) != SQLITE_OK) {
+                    char error_msg[512];
+                    snprintf(error_msg, sizeof(error_msg), "SQL error: %s\n", zErrMsg);
+                    send_error(error_msg, c->pollfd.fd);
+                    sqlite3_free(zErrMsg);
+                }
+
+                struct json_object *json_reply = json_object_new_object();
+                json_object_object_add(json_reply, "success", json_object_new_boolean(1));
+                const char *reply = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+                json_object_put(json_reply);
+
+                send_json(reply, c->pollfd.fd);
+            }   
         } else if (strcmp(request, "DELETE_ARTICLE") == 0){
 
                 // NEED TO ADD ABILITY TO DELETE (ONLY ADMIN OR IF USER IS AUTHOR)
 
-                  printf("DELETE_ARTICLE");
+                  printf("DELETE_ARTICLE\n");
       
                   // Ensure "ids" is present in the JSON request
                   if (!json_object_object_get_ex(json_req, "ids", &json_obj)) {
@@ -456,6 +438,8 @@ int process_client_request(Client *c) {
                   }
       
                   strcat(query, ");"); // Close the IN() clause
+
+                  printf("%s\n", query);
       
                   // Prepare statement
                   sqlite3_stmt *stmt;
@@ -478,11 +462,16 @@ int process_client_request(Client *c) {
                       json_object_put(json_req);
                       return -1;
                   } else {
+                        printf("query executed\n");
                       int affected_rows = sqlite3_changes(db); // Get the number of affected rows
                       if (affected_rows > 0) {
-                          return 0;
+                        struct json_object *json_reply = json_object_new_object();
+                        json_object_object_add(json_reply, "success", json_object_new_boolean(1));
+                        const char *reply = json_object_to_json_string_ext(json_reply, JSON_C_TO_STRING_PLAIN);
+                        send_json(reply,c->pollfd.fd);
+                        return 0;
                       } else {
-                          send_error("No articles matched the criteria.", c->pollfd.fd);
+                        send_error("No articles matched the criteria.", c->pollfd.fd);
                       }
                   }
       
@@ -532,9 +521,6 @@ void server(){
     clients[0].pollfd.events = POLLIN;
     pollfds[0] = clients[0].pollfd;
     num_clients++;
-
-
-    printf("starting polling...\n");
 
     // Polling loop
     for (;;) {

@@ -4,11 +4,6 @@ echo "starting"
 
 make all
 
-./server &  
+sqlite3 database/wiki.db < database/create.sql
 
-./client_max
-
-pkill server
-
-exit
-
+./server

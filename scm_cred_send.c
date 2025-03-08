@@ -161,10 +161,6 @@
         // see code above function
         memcpy(CMSG_DATA(cmsgp), fdList, fdAllocSize);
 
-        if(cmsgp->cmsg_type == SCM_RIGHTS){
-        printf("its the msg_control!\n");    
-        }
-
         ssize_t ns = sendmsg(sfd, &msgh, 0);
         if (ns == -1){
             errExit("sendmsg");
@@ -264,6 +260,7 @@
     // returns 0 on success, or an FD to error.txt on server error
     int delete_articles(int sfd, int* ids, int* num_ids) {
         if(sfd < 0) {
+            printf("socket is invalid\n");
             return -1; // Return -1 for invalid socket
         }
 
@@ -279,25 +276,47 @@
 
         const char *request = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
 
+        printf("about to send delete message\n");
+
         // Send the request to the server
-        if (write(sfd, request, strlen(request)) == -1) {
-            perror("write");
-            close(sfd);
-            return -1;  // Return -1 if writing fails
-        }
+            if (write(sfd, request, strlen(request)) == -1) {
+                perror("write");
+                close(sfd);
+                return -1;  // Return -1 if writing fails
+            }
 
+        printf("sent delete message\n");
         // Receive the server's response
-        int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
+        // int *fds = receive_fds(sfd, num_ids); // Assume this receives fds or NULL
 
-        if (fds != NULL) {
-            // If fds are returned, it indicates an error from the server, so we return the fd to error.txt
-            int error_fd = fds[0];  // Assuming the server sends a single FD for error
-            close(sfd);
-            return error_fd;
-        }
+        // if (fds != NULL) {
+        //     // If fds are returned, it indicates an error from the server, so we return the fd to error.txt
+        //     int error_fd = fds[0];  // Assuming the server sends a single FD for error
+        //     close(sfd);
+        //     return error_fd;
+        // }
 
         // If no fds were received (NULL), it indicates success
-        close(sfd);
+        int bytes_read;
+        char buffer[BUFFER_SIZE];
+        bytes_read = read(sfd, buffer, sizeof(buffer));
+        if(bytes_read > 0){
+            struct json_object *json_reply = json_tokener_parse(buffer);
+            struct json_object *json_obj;
+            if (!json_object_object_get_ex(json_reply, "success", & json_obj)) {
+                json_object_put(json_reply);
+                return -1;
+            }
+            if(json_object_get_boolean(json_obj)){
+                return 0;
+            }
+            else{
+                return -1;
+            }
+        } else{
+            errExit("couldn't read from server");
+        }
+
         return 0;
     }
 

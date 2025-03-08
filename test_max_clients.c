@@ -8,13 +8,10 @@ int main() {
         if(!pid){
             char* argument_list[] = {"./client", NULL};
             if(execvp(argument_list[0], argument_list) < 0){
-                printf("I'm erroring\n");
             }
         }   
 
     }
-
-    printf("parent reached end of loop\n");
 
     int sfd = client_connect();
 

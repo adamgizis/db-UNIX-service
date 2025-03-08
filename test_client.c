@@ -74,6 +74,8 @@ void upload_file_then_delete() {
     }
     json_object_put(json_obj);
 
+    printf("pre_num_articles: %d\n", pre_num_articles);
+
     const char *filepath = "test.txt";  // Replace with a valid file path
     const char *title = "test";
     
@@ -105,10 +107,14 @@ void upload_file_then_delete() {
         int post_num_articles = 0;
         if (json_object_object_get_ex(json_obj, "articles", &articles_array)) {
             post_num_articles = json_object_array_length(articles_array);
-        }
-        json_object_put(json_obj);
+        } 
 
-        if (pre_num_articles + 1 == post_num_articles) {
+        const char *json_array = json_object_to_json_string_ext(json_obj, JSON_C_TO_STRING_PLAIN);
+        printf("%s\n", json_array);
+        printf("prenum:%d  postnum:%d\n", pre_num_articles, post_num_articles);
+
+        if ((pre_num_articles + 1) == post_num_articles) {
+            printf("here");
             // Loop through each article in the "articles" array
             for (int i = 0; i < post_num_articles; i++) {
                 struct json_object *article = json_object_array_get_idx(articles_array, i);
@@ -165,15 +171,18 @@ void delete_file_not_root(){
     // Call the delete_articles function to delete the article with ID 2
     int result = delete_articles(sfd, ids, &num_ids);
 
+    if(result < 0){
+        printf("ROOT DELETE SUCCESS\n");
+    }
+    else{
+        printf("ROOT DELETE FAILURE\n");
+    }
+
     // check if successful
     close_connection(sfd);
 }
 int main(){
     get_single_file();
     upload_file_then_delete();
-    delete_file_not_root();
-
-
-
-    
+        delete_file_not_root(); 
 }
