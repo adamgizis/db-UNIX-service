@@ -44,7 +44,8 @@ server();
 
 ## Example Test Files
 
-
+Tests are in test_client.c and client.c
+The tests can be compiled and run through the test.sh script
 
 ## Work Split
 Laith handled the json operations and sending the passing file descriptors both directions. Adam implemented the polling and accept & the client side. A good amount was done in pair.
